@@ -38,8 +38,9 @@ function baseUrl(routerUrl: string): string {
 async function waitForManualLogin(): Promise<void> {
   const rl = createInterface({ input, output });
   console.log("");
-  console.log(">>> Log in to the router in the Chromium window.");
-  console.log(">>> When the GUI is fully loaded, return here and press Enter.");
+  console.log(">>> Log in to the router in the Chromium window now (login POSTs are allowed).");
+  console.log(">>> Wait until you see the main GUI (not the login page).");
+  console.log(">>> Only then return here and press Enter — that starts the crawl and blocks further POSTs.");
   console.log("");
   await rl.question("Press Enter to start discover crawl… ");
   rl.close();
@@ -108,16 +109,8 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
   });
   const page = await context.newPage();
 
-  // Discover mode: never let the crawler issue POSTs after login handoff.
-  await page.route("**/*", async (route) => {
-    const req = route.request();
-    if (req.method() === "POST") {
-      console.warn(`[discover] blocked POST: ${req.url()}`);
-      await route.abort();
-      return;
-    }
-    await route.continue();
-  });
+  // Do NOT block POSTs yet — operator login must be able to POST login_entry.
+  // POST abort is installed only after the Enter handoff below.
 
   page.on("response", async (response: Response) => {
     try {
@@ -188,14 +181,13 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     timeout: 60_000,
   });
 
-  // Allow login POSTs: remove abort route during manual login, then re-apply.
-  await page.unroute("**/*");
   await waitForManualLogin();
 
+  // After handoff: discover must not POST (blocks Apply/login retries/etc.).
   await page.route("**/*", async (route) => {
     const req = route.request();
     if (req.method() === "POST") {
-      console.warn(`[discover] blocked POST: ${req.url()}`);
+      console.warn(`[discover] blocked POST (post-login crawl): ${req.url()}`);
       await route.abort();
       return;
     }
@@ -350,7 +342,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     fields: [...allFields].sort(),
     exchanges,
     tags: [...allTags].sort(),
-    version: "0.1.1",
+    version: "0.1.2",
   });
 
   console.log("");

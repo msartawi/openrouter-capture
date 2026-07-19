@@ -2,6 +2,12 @@
 
 All notable changes will be documented here.
 
+## [0.1.2] — 2026-07-20
+
+### Fixed
+
+- Login POSTs (`login_entry`) were blocked before the Enter handoff. POST abort now starts only after you confirm login in the terminal.
+
 ## [0.1.1] — 2026-07-20
 
 ### Added
