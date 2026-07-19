@@ -5,6 +5,7 @@ import { chromium, type Page, type Response } from "playwright";
 import { isDeniedTag, isDeniedUrl } from "../denylist.js";
 import { redactQuery, redactSecrets } from "../redact.js";
 import type { CapturedExchange, CrawlOptions, EndpointRecord } from "../types.js";
+import { autoLogin } from "./login.js";
 import { extractMenuTree } from "./menuParser.js";
 import {
   classifySessionState,
@@ -247,7 +248,19 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     timeout: 60_000,
   });
 
-  await waitForManualLogin();
+  const user = options.username?.trim() ?? "";
+  const pass = options.password ?? "";
+  if (user && pass) {
+    // Login POST must succeed — POST block is installed only after handoff.
+    await autoLogin(page, { username: user, password: pass });
+  } else {
+    if (user || pass) {
+      console.warn(
+        "[discover] ignoring partial credentials; need both --username and --password (or env). Falling back to manual login.",
+      );
+    }
+    await waitForManualLogin();
+  }
 
   // After handoff: allow ZTE read-style POSTs (menuData/menuView/hiddenData).
   // Block write-like POSTs (Apply / IF_ACTION / denied tags / unknown).
@@ -467,7 +480,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     fields: [...allFields].sort(),
     exchanges,
     tags: [...allTags].sort(),
-    version: "0.1.7",
+    version: "0.1.8",
   });
 
   console.log("");

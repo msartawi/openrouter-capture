@@ -15,10 +15,10 @@ Read **[HANDOVER.md](HANDOVER.md)** first (current state, safety rules, GitHub p
 ```powershell
 cd c:\Projects\openrouter-capture
 npm install
-npm run capture -- crawl --router http://192.168.1.1 --output ./captures/zte-f6600p --mode discover
+npm run capture -- crawl --router http://192.168.1.1 --output ./captures/zte-f6600p --mode discover --username admin --password "YOUR_PASSWORD"
 ```
 
-Log in manually in Chromium, then press Enter in the terminal.
+With credentials, login is automatic. Without them: log in manually in Chromium, then press Enter once.
 
 ## Modes
 

@@ -21,14 +21,22 @@ Requires Node.js 24+ (see `.nvmrc`). Chromium is installed via `postinstall` unl
 ## Stage 1 — discover (read-only)
 
 ```powershell
+npm run capture -- crawl --router http://192.168.1.1 --output ./captures/zte-f6600p --mode discover --username admin --password "YOUR_PASSWORD"
+```
+
+Or set `ROUTER_USERNAME` / `ROUTER_PASSWORD` in a local `.env` (never commit it).
+
+### Manual login (no credentials)
+
+```powershell
 npm run capture -- crawl --router http://192.168.1.1 --output ./captures/zte-f6600p --mode discover
 ```
 
 1. Chromium opens headed on the router URL.
-2. Log in manually in the browser and wait for the **main home GUI**.
-3. Return to the terminal and press **Enter once** (the crawler walks menus itself — do not press Enter after each tab).
+2. With credentials: tool fills `#Frm_Username` / `#Frm_Password` and clicks `#LoginId`, then crawls.
+3. Without credentials: log in manually, wait for the **main home GUI**, press **Enter once**.
 4. The tool records traffic, saves pages/scripts, extracts `_tag` / `OBJ_*` patterns, and writes a catalog under `--output`.
-5. After Enter, write-like POSTs are blocked; ZTE read-style `menuData`/`menuView` POSTs are still allowed.
+5. After login handoff, write-like POSTs are blocked; ZTE read-style `menuData`/`menuView` POSTs are still allowed.
 
 ### Modes
 

@@ -2,6 +2,12 @@
 
 All notable changes will be documented here.
 
+## [0.1.8] — 2026-07-20
+
+### Added
+
+- Optional auto-login via `--username` / `--password` (or `ROUTER_USERNAME` / `ROUTER_PASSWORD`) using `#Frm_Username`, `#Frm_Password`, `#LoginId`. When both are set, discover skips the Enter handoff.
+
 ## [0.1.7] — 2026-07-20
 
 ### Fixed

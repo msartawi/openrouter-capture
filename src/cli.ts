@@ -1,24 +1,35 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { runDiscover } from "./crawl/discover.js";
+import { loadDotEnv } from "./loadEnv.js";
 import { DEFAULTS, type CrawlMode, type CrawlOptions } from "./types.js";
+
+loadDotEnv();
 
 function printHelp(): void {
   console.log(`openrouter-capture — local router API discovery (not part of OpenRouterDesk)
 
 Usage:
-  npm run capture -- crawl --router <url> --output <dir> --mode discover
+  npm run capture -- crawl --router <url> --output <dir> --mode discover [options]
 
 Options:
   --router <url>       Router base URL (default http://192.168.1.1)
   --output <dir>       Output directory (default ./captures/zte-f6600p)
   --mode <mode>        discover | simulate | verify (default discover)
+  --username <name>    Auto-login username (or ROUTER_USERNAME env)
+  --password <pass>    Auto-login password (or ROUTER_PASSWORD env)
   --delay-ms <n>       Delay between probes (default ${DEFAULTS.delayMs})
-  --max-requests <n>   Max probe GETs (default ${DEFAULTS.maxRequests})
+  --max-requests <n>   Max probe requests (default ${DEFAULTS.maxRequests})
   --read-only          Force discover constraints (blocks verify)
 
+When --username and --password are both set, discover fills #Frm_Username /
+#Frm_Password and clicks #LoginId, then crawls without pressing Enter.
+Otherwise log in manually and press Enter once in the terminal.
+
+Never commit passwords. Prefer env vars over shell history when possible.
+
 Examples:
-  npm run capture -- crawl --router http://192.168.1.1 --output ./captures/zte-f6600p --mode discover
+  npm run capture -- crawl --router http://192.168.1.1 --output ./captures/zte-f6600p --mode discover --username admin --password "secret"
 `);
 }
 
@@ -29,12 +40,14 @@ function parseArgs(argv: string[]): {
   const args = [...argv];
   const command = args.shift() ?? "help";
 
-  let routerUrl = "http://192.168.1.1";
+  let routerUrl = process.env.ROUTER_URL?.trim() || "http://192.168.1.1";
   let outputDir = "./captures/zte-f6600p";
   let mode: CrawlMode = "discover";
   let delayMs = DEFAULTS.delayMs;
   let maxRequests = DEFAULTS.maxRequests;
   let readOnly = false;
+  let username = process.env.ROUTER_USERNAME?.trim() || undefined;
+  let password = process.env.ROUTER_PASSWORD || undefined;
 
   for (let i = 0; i < args.length; i += 1) {
     const a = args[i];
@@ -50,6 +63,14 @@ function parseArgs(argv: string[]): {
         break;
       case "--mode":
         mode = (next as CrawlMode) ?? mode;
+        i += 1;
+        break;
+      case "--username":
+        username = next ?? username;
+        i += 1;
+        break;
+      case "--password":
+        password = next ?? password;
         i += 1;
         break;
       case "--delay-ms":
@@ -84,6 +105,8 @@ function parseArgs(argv: string[]): {
       delayMs,
       maxRequests,
       readOnly,
+      username,
+      password,
     },
   };
 }

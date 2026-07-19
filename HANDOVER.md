@@ -33,7 +33,7 @@ It is **not** the Electron app. Never merge this crawler into `openrouterdesk` a
 | Topics | `playwright`, `typescript`, `router`, `zte`, `api-discovery`, `openrouterdesk` |
 | CODEOWNERS | `@msartawi` |
 | CI | `.github/workflows/ci.yml` present; Dependabot open |
-| Stage 1 `discover` | Implemented — production **`v0.1.6`** (deep menu walk, enrich from exchanges) |
+| Stage 1 `discover` | Implemented — production **`v0.1.8`** (optional auto-login; deep menu walk) |
 | Stage 2 `simulate` | Stub (CLI exits with not implemented) |
 | Stage 3 `verify` / `scenario` | Stub |
 | Stable release | GitHub Release on tag `v*` (see `docs/RELEASE_PROCESS.md`) |
@@ -45,21 +45,25 @@ It is **not** the Electron app. Never merge this crawler into `openrouterdesk` a
 ```powershell
 cd c:\Projects\openrouter-capture
 npm install
-npm run capture -- crawl --router http://192.168.1.1 --output ./captures/zte-f6600p --mode discover
+npm run capture -- crawl --router http://192.168.1.1 --output ./captures/zte-f6600p --mode discover --username admin --password "…"
 ```
 
-1. Headed Chromium opens → operator logs in manually.  
-2. Press Enter in the terminal.  
-3. Tool GETs only; POSTs aborted after login handoff.  
+Or set `ROUTER_USERNAME` / `ROUTER_PASSWORD` (local `.env` is loaded if present; never commit it).
+
+1. With credentials: fills `#Frm_Username` / `#Frm_Password`, clicks `#LoginId`, then crawls.  
+2. Without credentials: log in manually in Chromium, press Enter once.  
+3. After handoff, write-like POSTs are blocked; ZTE read-style POSTs still allowed.  
 4. Output: `router.json`, `menu-tree.json`, `endpoints.json`, `objects.json`, `fields.json`, `pages/`, `scripts/`, `requests/`, `responses/`, `report.html`.
 
 ### Key source map
 
 ```text
 src/cli.ts                 CLI parse + mode gate
+src/loadEnv.ts             Optional local .env loader
 src/denylist.ts            Auto-submit / risky-tag denylist
 src/types.ts               CrawlOptions, EndpointRecord, CapturedExchange
 src/crawl/discover.ts      Stage 1 crawl
+src/crawl/login.ts         ZTE auto-login (#Frm_Username / #Frm_Password / #LoginId)
 src/crawl/menuParser.ts    Menu candidates from DOM
 src/crawl/patternExtract.ts  _tag / OBJ_* / ParaName / SessionTimeout
 src/report/writeOutput.ts  JSON + HTML report writers

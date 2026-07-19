@@ -13,7 +13,7 @@ There is no Microsoft Store channel and no Authenticode signing for this tool.
 
 ## First production bar (v0.1.x)
 
-Stage 1 **`discover`** (read-only crawl after manual login) is the first production capability. `simulate` and `verify` are later majors/minors and must not block v0.1.0.
+Stage 1 **`discover`** (read-only crawl after login — manual or `--username`/`--password`) is the first production capability. `simulate` and `verify` are later majors/minors and must not block v0.1.0.
 
 ## Steps
 
@@ -37,7 +37,7 @@ git clone https://github.com/msartawi/openrouter-capture.git
 cd openrouter-capture
 git checkout v0.1.0
 npm install
-npm run capture -- crawl --router http://192.168.1.1 --output ./captures/zte-f6600p --mode discover
+npm run capture -- crawl --router http://192.168.1.1 --output ./captures/zte-f6600p --mode discover --username admin --password "YOUR_PASSWORD"
 ```
 
 The package is `private: true` — not published to the npm registry.

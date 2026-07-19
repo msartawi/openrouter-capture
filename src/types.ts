@@ -7,6 +7,9 @@ export interface CrawlOptions {
   delayMs: number;
   maxRequests: number;
   readOnly: boolean;
+  /** When set with password, discover auto-fills the ZTE login form. */
+  username?: string;
+  password?: string;
 }
 
 export const DEFAULTS: { delayMs: number; maxRequests: number } = {
