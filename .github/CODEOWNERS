@@ -1,0 +1,6 @@
+# Primary owner until an org team exists.
+* @msartawi
+
+/.github/workflows/ @msartawi
+/src/denylist.ts @msartawi
+/src/crawl/ @msartawi

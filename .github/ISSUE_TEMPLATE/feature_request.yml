@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose a safe, evidence-based enhancement
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired user outcome
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Does this alter router configuration?
+      options:
+        - No, read-only (discover)
+        - Planning/simulate only (abort POST)
+        - Yes, writes configuration (verify)
+        - Firmware-related
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Compatibility evidence

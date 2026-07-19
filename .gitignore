@@ -1,0 +1,35 @@
+node_modules/
+dist/
+captures/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+
+# Cursor / coding-agent local operating files (never publish)
+.cursor/
+.claude/
+.codex/
+.agents/
+AGENT.md
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+
+# Raw discovery outputs and secrets (never publish)
+*.har
+*.pcap
+*.pcapng
+storage-state.json
+**/cookies.json
+research/private/
+*.bin
+*.img
+*.rom
+*.cfg
+*.conf
+*.backup

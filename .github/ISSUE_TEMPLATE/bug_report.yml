@@ -1,0 +1,48 @@
+name: Bug report
+description: Report a reproducible non-security defect
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, session tokens, complete captures, or private network inventories.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: openrouter-capture version or commit
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options:
+        - discover
+        - simulate
+        - verify
+        - other / CLI
+    validations:
+      required: true
+  - type: textarea
+    id: router
+    attributes:
+      label: Router compatibility information
+      description: Model, hardware revision, firmware/build, and role. Redact serial/MAC/public IP.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
