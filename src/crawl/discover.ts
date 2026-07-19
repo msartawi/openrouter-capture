@@ -183,11 +183,34 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
 
   await waitForManualLogin();
 
-  // After handoff: discover must not POST (blocks Apply/login retries/etc.).
+  // After handoff: allow ZTE read-style POSTs (menuData/menuView/hiddenData).
+  // Block write-like POSTs (Apply / IF_ACTION / denied tags / unknown).
   await page.route("**/*", async (route) => {
     const req = route.request();
     if (req.method() === "POST") {
-      console.warn(`[discover] blocked POST (post-login crawl): ${req.url()}`);
+      const url = req.url();
+      let type = "";
+      let tag = "";
+      try {
+        const u = new URL(url);
+        type = u.searchParams.get("_type") ?? "";
+        tag = u.searchParams.get("_tag") ?? "";
+      } catch {
+        type = "";
+      }
+      const postData = req.postData() ?? "";
+      const readType = /^(menuData|menuView|hiddenData)$/i.test(type);
+      const looksWrite =
+        /IF_ACTION|Apply|Save|Delete|Add|Modify|Upload|Upgrade/i.test(
+          postData,
+        ) || isDeniedTag(tag);
+
+      if (readType && !looksWrite) {
+        await route.continue();
+        return;
+      }
+
+      console.warn(`[discover] blocked POST (post-login crawl): ${url}`);
       await route.abort();
       return;
     }
@@ -210,11 +233,11 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
   }
 
   // Collect script URLs and download text for pattern mining.
-  const scriptUrls = await page.$$eval("script[src]", (els) =>
-    els
-      .map((e) => (e as HTMLScriptElement).src)
-      .filter((s) => Boolean(s)),
-  );
+  const scriptUrls = (await page.evaluate(`(() => {
+    return Array.from(document.querySelectorAll("script[src]"))
+      .map((e) => e.src)
+      .filter((s) => Boolean(s));
+  })()`)) as string[];
 
   let scriptIndex = 0;
   for (const scriptUrl of scriptUrls.slice(0, 40)) {
@@ -342,7 +365,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     fields: [...allFields].sort(),
     exchanges,
     tags: [...allTags].sort(),
-    version: "0.1.2",
+    version: "0.1.3",
   });
 
   console.log("");

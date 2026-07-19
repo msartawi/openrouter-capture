@@ -2,6 +2,13 @@
 
 All notable changes will be documented here.
 
+## [0.1.3] — 2026-07-20
+
+### Fixed
+
+- Crash `page.evaluate: __name is not defined` during menu extraction (tsx + Playwright).
+- ZTE read APIs use POST for `menuData` / `menuView`; those are allowed after login. Write-like POSTs still blocked.
+
 ## [0.1.2] — 2026-07-20
 
 ### Fixed

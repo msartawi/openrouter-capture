@@ -9,17 +9,18 @@ export interface MenuNode {
 
 /**
  * Best-effort menu extraction for ZTE-style GUIs.
- * Looks for anchors, onclick Transfer_Meaning / menu helpers, and script blobs.
+ * Uses a string evaluate body so tsx/esbuild cannot inject __name into the browser.
  */
 export async function extractMenuTree(page: Page): Promise<MenuNode[]> {
-  return page.evaluate(() => {
-    const nodes: MenuNode[] = [];
-    const seen = new Set<string>();
+  // String source avoids Playwright+tsx "__name is not defined" in page.evaluate.
+  return page.evaluate(`(() => {
+    const nodes = [];
+    const seen = new Set();
 
-    const push = (text: string, href?: string, tag?: string) => {
-      const t = text.trim().replace(/\s+/g, " ");
+    const push = (text, href, tag) => {
+      const t = String(text || "").trim().replace(/\\s+/g, " ");
       if (!t || t.length > 80) return;
-      const key = `${t}|${tag ?? href ?? ""}`;
+      const key = t + "|" + (tag || href || "");
       if (seen.has(key)) return;
       seen.add(key);
       nodes.push({
@@ -30,16 +31,16 @@ export async function extractMenuTree(page: Page): Promise<MenuNode[]> {
       });
     };
 
-    const tagFromBlob = (blob: string): string | undefined => {
+    const tagFromBlob = (blob) => {
       const patterns = [
         /_tag=([A-Za-z0-9_./-]+)/i,
-        /Transfer_Meaning\s*\(\s*['"][^'"]+['"]\s*,\s*['"]([^'"]+)['"]/i,
-        /(?:menuView|menuData|MenuClick|getMenu)\s*\(\s*['"]([^'"]+)['"]/i,
-        /['"]([A-Za-z0-9_]+(?:_lua\.lua|\.lp|\.gch))['"]/i,
+        /Transfer_Meaning\\s*\\(\\s*['"][^'"]+['"]\\s*,\\s*['"]([^'"]+)['"]/i,
+        /(?:menuView|menuData|MenuClick|getMenu)\\s*\\(\\s*['"]([^'"]+)['"]/i,
+        /['"]([A-Za-z0-9_]+(?:_lua\\.lua|\\.lp|\\.gch))['"]/i,
       ];
       for (const re of patterns) {
         const m = blob.match(re);
-        if (m?.[1]) return m[1];
+        if (m && m[1]) return m[1];
       }
       return undefined;
     };
@@ -51,36 +52,35 @@ export async function extractMenuTree(page: Page): Promise<MenuNode[]> {
     );
 
     for (const el of els) {
-      const text = (el.textContent ?? "").trim().replace(/\s+/g, " ");
-      let href =
-        el instanceof HTMLAnchorElement ? el.getAttribute("href") ?? "" : "";
-      const onclick = el.getAttribute("onclick") ?? "";
+      const text = (el.textContent || "").trim().replace(/\\s+/g, " ");
+      let href = el.tagName === "A" ? el.getAttribute("href") || "" : "";
+      const onclick = el.getAttribute("onclick") || "";
       const dataTag =
-        el.getAttribute("data-tag") ??
-        el.getAttribute("data-menuid") ??
-        el.getAttribute("id") ??
+        el.getAttribute("data-tag") ||
+        el.getAttribute("data-menuid") ||
+        el.getAttribute("id") ||
         "";
-      const blob = `${href} ${onclick} ${dataTag}`;
-      const tag = tagFromBlob(blob) ?? (dataTag.includes("_") ? dataTag : undefined);
+      const blob = href + " " + onclick + " " + dataTag;
+      let tag = tagFromBlob(blob);
+      if (!tag && dataTag.includes("_")) tag = dataTag;
 
-      if (!tag && !/_type=|menu|Transfer_Meaning/i.test(blob) && !href.includes("?")) {
+      if (!tag && !/_type=|menu|Transfer_Meaning/i.test(blob) && href.indexOf("?") === -1) {
         continue;
       }
       push(text || tag || "menu", href || undefined, tag);
     }
 
-    // Mine inline scripts for Transfer_Meaning / _tag= menu entries.
     for (const script of Array.from(document.querySelectorAll("script:not([src])"))) {
-      const src = script.textContent ?? "";
+      const src = script.textContent || "";
       const re =
-        /Transfer_Meaning\s*\(\s*['"][^'"]+['"]\s*,\s*['"]([^'"]+)['"]\s*\)|_tag=([A-Za-z0-9_./-]+)/gi;
-      let m: RegExpExecArray | null;
+        /Transfer_Meaning\\s*\\(\\s*['"][^'"]+['"]\\s*,\\s*['"]([^'"]+)['"]\\s*\\)|_tag=([A-Za-z0-9_./-]+)/gi;
+      let m;
       while ((m = re.exec(src)) !== null) {
-        const tag = (m[1] ?? m[2] ?? "").trim();
+        const tag = (m[1] || m[2] || "").trim();
         if (tag) push(tag, undefined, tag);
       }
     }
 
     return nodes;
-  });
+  })()`) as Promise<MenuNode[]>;
 }
