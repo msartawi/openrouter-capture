@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-2025
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate
+        run: npm run check
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $isPrerelease = $tag -match "-"
+          $body = @"
+          ## openrouter-capture $tag
+
+          First production channel for this standalone Playwright helper (Stage 1 ``discover``).
+
+          ### Install
+
+          ``````powershell
+          git clone https://github.com/msartawi/openrouter-capture.git
+          cd openrouter-capture
+          git checkout $tag
+          npm install
+          npm run capture -- crawl --router http://192.168.1.1 --output ./captures/zte-f6600p --mode discover
+          ``````
+
+          ### Safety
+
+          - Authorized routers only
+          - ``discover`` does not POST after login handoff
+          - Never commit raw ``captures/``, HARs, or cookies
+
+          See ``docs/RELEASE_PROCESS.md`` and ``CHANGELOG.md``.
+          "@
+          if ($isPrerelease) {
+            gh release create $tag --title $tag --notes $body --prerelease
+          } else {
+            gh release create $tag --title $tag --notes $body
+          }

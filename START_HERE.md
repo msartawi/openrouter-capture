@@ -24,9 +24,13 @@ Log in manually in Chromium, then press Enter in the terminal.
 
 | Mode | Status |
 |---|---|
-| `discover` | Stage 1 — implemented |
+| `discover` | Stage 1 — **first production release** (`v0.1.0`) |
 | `simulate` | Stage 2 — not implemented |
 | `verify` | Stage 3 — not implemented |
+
+## Production release
+
+Stable channel = GitHub Release on tag `v*`. See [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md).
 
 ## Never commit
 

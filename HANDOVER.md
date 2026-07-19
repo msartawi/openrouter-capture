@@ -33,9 +33,10 @@ It is **not** the Electron app. Never merge this crawler into `openrouterdesk` a
 | Topics | `playwright`, `typescript`, `router`, `zte`, `api-discovery`, `openrouterdesk` |
 | CODEOWNERS | `@msartawi` |
 | CI | `.github/workflows/ci.yml` present; Dependabot open |
-| Stage 1 `discover` | Implemented (`src/crawl/discover.ts`) |
+| Stage 1 `discover` | Implemented — **first production** (`v0.1.0`) |
 | Stage 2 `simulate` | Stub (CLI exits with not implemented) |
 | Stage 3 `verify` / `scenario` | Stub |
+| Stable release | GitHub Release on tag `v*` (see `docs/RELEASE_PROCESS.md`) |
 | Raw captures | `./captures/` gitignored — never commit |
 | Agent files | `.cursor/`, `AGENT.md`, `AGENTS.md` gitignored |
 

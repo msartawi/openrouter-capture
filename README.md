@@ -51,6 +51,10 @@ npm run capture -- crawl --router http://192.168.1.1 --output ./captures/zte-f66
 npm run check
 ```
 
+## Releases
+
+Production channel: GitHub Releases (`v*`). Process: [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md).
+
 ## Related
 
 - Product app: [msartawi/openrouterdesk](https://github.com/msartawi/openrouterdesk)
