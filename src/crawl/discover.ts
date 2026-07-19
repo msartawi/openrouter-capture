@@ -3,6 +3,7 @@ import { stdin as input, stdout as output } from "node:process";
 import path from "node:path";
 import { chromium, type Page, type Response } from "playwright";
 import { isDeniedTag, isDeniedUrl } from "../denylist.js";
+import { redactQuery, redactSecrets } from "../redact.js";
 import type { CapturedExchange, CrawlOptions, EndpointRecord } from "../types.js";
 import { extractMenuTree } from "./menuParser.js";
 import {
@@ -30,6 +31,10 @@ function riskForTag(tag: string): EndpointRecord["risk"] {
   return "low";
 }
 
+function baseUrl(routerUrl: string): string {
+  return routerUrl.replace(/\/$/, "");
+}
+
 async function waitForManualLogin(): Promise<void> {
   const rl = createInterface({ input, output });
   console.log("");
@@ -41,8 +46,45 @@ async function waitForManualLogin(): Promise<void> {
 }
 
 function previewBody(body: string, max = 4000): string {
-  if (body.length <= max) return body;
-  return `${body.slice(0, max)}\n…[truncated ${body.length - max} chars]`;
+  const redacted = redactSecrets(body);
+  if (redacted.length <= max) return redacted;
+  return `${redacted.slice(0, max)}\n…[truncated ${redacted.length - max} chars]`;
+}
+
+/** Warm authenticated session with menuView-first GETs (no POST). */
+async function warmSession(page: Page, routerUrl: string): Promise<boolean> {
+  const base = baseUrl(routerUrl);
+  const warmTags = [
+    "home",
+    "status",
+    "devmgr",
+    "localnet",
+    "internet",
+    "wlan_homepage_lua.lua",
+    "accessdev_homepage_lua.lua",
+  ];
+
+  for (const tag of warmTags) {
+    try {
+      const url = `${base}/?_type=menuView&_tag=${encodeURIComponent(tag)}`;
+      const res = await page.request.get(url);
+      const body = await res.text();
+      if (classifySessionState(body) === "valid") {
+        console.log(`[discover] session warm via menuView _tag=${tag}`);
+        return true;
+      }
+    } catch {
+      // try next
+    }
+  }
+
+  try {
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+    console.log("[discover] session warm via page reload");
+  } catch {
+    console.warn("[discover] session warm-up could not confirm a valid session");
+  }
+  return false;
 }
 
 export async function runDiscover(options: CrawlOptions): Promise<void> {
@@ -58,6 +100,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
   const objects: Record<string, unknown[]> = {};
   const endpoints: EndpointRecord[] = [];
   let requestCount = 0;
+  let warmed = false;
 
   const browser = await chromium.launch({ headless: false });
   const context = await browser.newContext({
@@ -123,7 +166,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
       timestamp: new Date().toISOString(),
       method,
       path: u.pathname,
-      query: parseQuery(url),
+      query: redactQuery(parseQuery(url)),
       status,
       contentType: contentType || undefined,
       responseBodyPreview: previewBody(body),
@@ -134,7 +177,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
       const safeName = `resp-${exchanges.length}.xml`;
       await writeText(
         path.join(options.outputDir, "responses", safeName),
-        body,
+        redactSecrets(body),
       );
     }
   }
@@ -159,12 +202,20 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     await route.continue();
   });
 
+  warmed = await warmSession(page, options.routerUrl);
+
   const html = await page.content();
-  await writeText(path.join(options.outputDir, "pages", "index.html"), html);
+  await writeText(
+    path.join(options.outputDir, "pages", "index.html"),
+    redactSecrets(html),
+  );
   for (const tag of extractTagsFromText(html)) allTags.add(tag);
 
   const menuTree = await extractMenuTree(page);
   console.log(`Menu candidates: ${menuTree.length}`);
+  for (const node of menuTree) {
+    if (node.tag) allTags.add(node.tag);
+  }
 
   // Collect script URLs and download text for pattern mining.
   const scriptUrls = await page.$$eval("script[src]", (els) =>
@@ -182,11 +233,10 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
       scriptIndex += 1;
       await writeText(
         path.join(options.outputDir, "scripts", `script-${scriptIndex}.js`),
-        text,
+        redactSecrets(text),
       );
       for (const tag of extractTagsFromText(text)) allTags.add(tag);
       for (const action of extractActions(text)) {
-        // actions collected per-endpoint later
         void action;
       }
       await sleep(options.delayMs);
@@ -195,7 +245,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     }
   }
 
-  // Prefer menuData/menuView style GETs for discovered tags.
+  // Prefer menuView before menuData (warm-up order) for discovered tags.
   const tagsToProbe = [...allTags].filter((t) => !isDeniedTag(t)).slice(
     0,
     Math.max(0, options.maxRequests - requestCount),
@@ -207,9 +257,9 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     if (requestCount >= options.maxRequests) break;
 
     const candidates = [
-      `${options.routerUrl.replace(/\/$/, "")}/?_type=menuData&_tag=${encodeURIComponent(tag)}`,
-      `${options.routerUrl.replace(/\/$/, "")}/?_type=menuView&_tag=${encodeURIComponent(tag)}`,
-      `${options.routerUrl.replace(/\/$/, "")}/?_type=hiddenData&_tag=${encodeURIComponent(tag)}`,
+      `${baseUrl(options.routerUrl)}/?_type=menuView&_tag=${encodeURIComponent(tag)}`,
+      `${baseUrl(options.routerUrl)}/?_type=menuData&_tag=${encodeURIComponent(tag)}`,
+      `${baseUrl(options.routerUrl)}/?_type=hiddenData&_tag=${encodeURIComponent(tag)}`,
     ];
 
     const objectNames = new Set<string>();
@@ -217,6 +267,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     const actions = new Set<string>();
     let lastStatus = 0;
     let sampleBody = "";
+    let sawTimeout = false;
 
     for (const probeUrl of candidates) {
       if (requestCount >= options.maxRequests) break;
@@ -226,27 +277,38 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
         lastStatus = res.status();
         const body = await res.text();
         sampleBody = body;
-        for (const o of extractObjectNames(body)) objectNames.add(o);
-        for (const f of extractParaNames(body)) {
-          fields.add(f);
-          allFields.add(f);
-        }
-        for (const a of extractActions(body)) actions.add(a);
+        const sessionState = classifySessionState(body);
 
-        for (const o of objectNames) {
-          objects[o] ??= [];
-          if (body.includes(o) && objects[o].length < 3) {
-            objects[o].push({
-              tag,
-              status: lastStatus,
-              preview: previewBody(body, 1500),
-            });
+        if (sessionState === "timeout") {
+          sawTimeout = true;
+          console.warn(`[discover] SessionTimeout for ${tag} — re-warming`);
+          warmed = (await warmSession(page, options.routerUrl)) || warmed;
+          if (requestCount >= options.maxRequests) break;
+          requestCount += 1;
+          const retry = await page.request.get(probeUrl);
+          lastStatus = retry.status();
+          sampleBody = await retry.text();
+          if (classifySessionState(sampleBody) === "timeout") {
+            break;
           }
         }
 
-        const sessionState = classifySessionState(body);
-        if (sessionState === "timeout") {
-          console.warn(`[discover] SessionTimeout for ${tag} — try warm-up via GUI`);
+        for (const o of extractObjectNames(sampleBody)) objectNames.add(o);
+        for (const f of extractParaNames(sampleBody)) {
+          fields.add(f);
+          allFields.add(f);
+        }
+        for (const a of extractActions(sampleBody)) actions.add(a);
+
+        for (const o of objectNames) {
+          objects[o] ??= [];
+          if (sampleBody.includes(o) && objects[o].length < 3) {
+            objects[o].push({
+              tag,
+              status: lastStatus,
+              preview: previewBody(sampleBody, 1500),
+            });
+          }
         }
       } catch (err) {
         console.warn(`Probe failed ${probeUrl}`, err);
@@ -265,19 +327,18 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
       objectNames: [...objectNames],
     });
 
-    if (sampleBody && objectNames.size > 0) {
+    if (sampleBody && objectNames.size > 0 && !sawTimeout) {
       await writeText(
         path.join(
           options.outputDir,
           "responses",
           `${tag.replace(/[^\w.-]+/g, "_")}.txt`,
         ),
-        sampleBody,
+        redactSecrets(sampleBody),
       );
     }
   }
 
-  // Optional: click non-denied menu items with GET-looking hrefs (still no POST).
   await softNavigateMenus(page, menuTree, options);
 
   await writeDiscoverReport({
@@ -289,6 +350,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     fields: [...allFields].sort(),
     exchanges,
     tags: [...allTags].sort(),
+    version: "0.1.1",
   });
 
   console.log("");
@@ -296,7 +358,6 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
   console.log(`Open ${path.join(options.outputDir, "report.html")} in a browser.`);
   console.log("Leave Chromium open for inspection, or close it. Press Ctrl+C if needed.");
 
-  // Keep browser open briefly so user can see final page; then close.
   await sleep(2000);
   await browser.close();
 }
@@ -320,7 +381,7 @@ async function softNavigateMenus(
           timeout: 15_000,
         });
       } else if (tag) {
-        const url = `${options.routerUrl.replace(/\/$/, "")}/?_type=menuView&_tag=${encodeURIComponent(tag)}`;
+        const url = `${baseUrl(options.routerUrl)}/?_type=menuView&_tag=${encodeURIComponent(tag)}`;
         await page.goto(url, {
           waitUntil: "domcontentloaded",
           timeout: 15_000,
@@ -336,7 +397,7 @@ async function softNavigateMenus(
           "pages",
           `menu-${navigated}-${(item.text || "page").slice(0, 40).replace(/[^\w.-]+/g, "_")}.html`,
         ),
-        html,
+        redactSecrets(html),
       );
       await sleep(options.delayMs);
     } catch {

@@ -33,7 +33,7 @@ It is **not** the Electron app. Never merge this crawler into `openrouterdesk` a
 | Topics | `playwright`, `typescript`, `router`, `zte`, `api-discovery`, `openrouterdesk` |
 | CODEOWNERS | `@msartawi` |
 | CI | `.github/workflows/ci.yml` present; Dependabot open |
-| Stage 1 `discover` | Implemented — **first production** (`v0.1.0`) |
+| Stage 1 `discover` | Implemented — production **`v0.1.1`** (warm-up, menu extract, redaction) |
 | Stage 2 `simulate` | Stub (CLI exits with not implemented) |
 | Stage 3 `verify` / `scenario` | Stub |
 | Stable release | GitHub Release on tag `v*` (see `docs/RELEASE_PROCESS.md`) |
@@ -123,10 +123,10 @@ Suggested About (already close):
 
 ## Recommended next implementation (Stage 2+)
 
-1. Harden `discover`: session warm-up (`menuView` before `menuData`), better menu tree, redaction of SID/token in saved exchanges.  
-2. Implement `simulate`: form interact + `route.abort()` on POST; save proposed bodies.  
-3. Implement guided `scenario` + `verify` with restore — never auto-run denylisted actions.  
-4. Export a “sanitized fixture pack” command for copying into openrouterdesk `fixtures/`.  
+1. Implement `simulate`: form interact + `route.abort()` on POST; save proposed bodies.  
+2. Implement guided `scenario` + `verify` with restore — never auto-run denylisted actions.  
+3. Export a “sanitized fixture pack” command for copying into openrouterdesk `fixtures/`.  
+4. Re-run live discover after login and compare catalog richness vs v0.1.0 captures.  
 
 ---
 

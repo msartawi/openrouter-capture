@@ -34,6 +34,7 @@ export async function writeDiscoverReport(args: {
   fields: string[];
   exchanges: CapturedExchange[];
   tags: string[];
+  version?: string;
 }): Promise<void> {
   const { outputDir } = args;
 
@@ -42,7 +43,7 @@ export async function writeDiscoverReport(args: {
     capturedAt: new Date().toISOString(),
     mode: "discover",
     tool: "openrouter-capture",
-    version: "0.1.0",
+    version: args.version ?? "0.1.1",
   });
 
   await writeJson(path.join(outputDir, "menu-tree.json"), args.menuTree);

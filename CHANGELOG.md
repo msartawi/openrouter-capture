@@ -2,6 +2,19 @@
 
 All notable changes will be documented here.
 
+## [0.1.1] — 2026-07-20
+
+### Added
+
+- Session warm-up after login (`menuView` first, then reload fallback).
+- Stronger menu extraction (`Transfer_Meaning`, data-tag / onclick, inline script mining).
+- Secret redaction for SID / token / password-like values in saved exchanges, responses, pages, and scripts.
+
+### Changed
+
+- Tag probes use `menuView` → `menuData` → `hiddenData` order.
+- Re-warm and limited retry on `SessionTimeout` during probes.
+
 ## [0.1.0] — 2026-07-19
 
 ### Added
@@ -22,4 +35,4 @@ All notable changes will be documented here.
 
 - Stage 2 `simulate` (abort POST).
 - Stage 3 guided `verify` / `scenario`.
-- Session warm-up and redaction hardening for saved exchanges.
+- Export sanitized fixture pack for OpenRouterDesk.
