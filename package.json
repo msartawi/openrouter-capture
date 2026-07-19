@@ -1,6 +1,6 @@
 {
   "name": "openrouter-capture",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "description": "Local Playwright helper to discover ZTE router APIs for OpenRouterDesk. Not part of the public app.",
   "license": "MIT",

@@ -279,7 +279,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
   for (const tag of extractTagsFromText(html)) allTags.add(tag);
 
   const menuTree = await extractMenuTree(page);
-  console.log(`Menu candidates: ${menuTree.length}`);
+  console.log(`Menu candidates (initial): ${menuTree.length}`);
   for (const node of menuTree) {
     if (node.tag) allTags.add(node.tag);
   }
@@ -303,14 +303,17 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
         redactSecrets(text),
       );
       for (const tag of extractTagsFromText(text)) allTags.add(tag);
-      for (const action of extractActions(text)) {
-        void action;
-      }
       await sleep(options.delayMs);
     } catch (err) {
       console.warn(`Script fetch failed: ${scriptUrl}`, err);
     }
   }
+
+  // Walk menus BEFORE probing so Internet/Local/diag tags are discovered.
+  const walkedMenu = await deepWalkMenus(page, menuTree, options, allTags);
+  console.log(
+    `Menu candidates (after walk): ${walkedMenu.length}; tags so far: ${allTags.size}`,
+  );
 
   // Probe via in-page fetch; lua/_data tags prefer menuData first.
   const skipProbe = /^(login_entry|login_token|logout_entry)$/i;
@@ -439,18 +442,18 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     }
   }
 
-  await softNavigateMenus(page, menuTree, options);
+  enrichEndpointsFromExchanges(endpoints, exchanges);
 
   await writeDiscoverReport({
     outputDir: options.outputDir,
     routerUrl: options.routerUrl,
-    menuTree,
+    menuTree: walkedMenu,
     endpoints,
     objects,
     fields: [...allFields].sort(),
     exchanges,
     tags: [...allTags].sort(),
-    version: "0.1.5",
+    version: "0.1.6",
   });
 
   console.log("");
@@ -462,14 +465,113 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
   await browser.close();
 }
 
-async function softNavigateMenus(
+async function deepWalkMenus(
   page: Page,
-  menuTree: { text: string; href?: string; tag?: string }[],
+  initialMenu: { text: string; href?: string; tag?: string }[],
   options: CrawlOptions,
-): Promise<void> {
+  allTags: Set<string>,
+): Promise<{ text: string; href?: string; tag?: string; children: unknown[] }[]> {
+  const merged = new Map<string, { text: string; href?: string; tag?: string; children: unknown[] }>();
+  const remember = (nodes: { text: string; href?: string; tag?: string }[]) => {
+    for (const n of nodes) {
+      if (n.tag) allTags.add(n.tag);
+      const key = `${n.text}|${n.tag ?? n.href ?? ""}`;
+      if (!merged.has(key)) {
+        merged.set(key, { ...n, children: [] });
+      }
+    }
+  };
+  remember(initialMenu);
+
+  // Click common top-level labels to reveal Internet / Local / diag submenus.
+  const topLabels = [
+    "Internet",
+    "Local Network",
+    "Local",
+    "WLAN",
+    "Wi-Fi",
+    "VoIP",
+    "Voice",
+    "Management",
+    "Application",
+    "Security",
+    "Firewall",
+    "Diagnosis",
+    "Diagnostics",
+    "Status",
+    "USB",
+  ];
+
+  let clicked = 0;
+  for (const label of topLabels) {
+    if (clicked >= 12) break;
+    try {
+      const did = (await page.evaluate(`(() => {
+        const want = ${JSON.stringify(label)}.toLowerCase();
+        const els = Array.from(document.querySelectorAll("a, span, li, div, td"));
+        const el = els.find((e) => {
+          const t = (e.textContent || "").trim().replace(/\\s+/g, " ");
+          return t && t.length < 40 && t.toLowerCase() === want;
+        });
+        if (!el) return false;
+        el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+        return true;
+      })()`)) as boolean;
+      if (!did) continue;
+      clicked += 1;
+      await sleep(options.delayMs);
+      const html = await page.content();
+      await writeText(
+        path.join(
+          options.outputDir,
+          "pages",
+          `top-${clicked}-${label.replace(/[^\w.-]+/g, "_")}.html`,
+        ),
+        redactSecrets(html),
+      );
+      for (const t of extractTagsFromText(html)) allTags.add(t);
+      remember(await extractMenuTree(page));
+    } catch {
+      // skip missing labels / locales
+    }
+  }
+
+  // Seed short view tags often used by Transfer_Meaning on F6600P-class GUIs.
+  const seedViews = [
+    "internet",
+    "localnet",
+    "localNet",
+    "wlan",
+    "voip",
+    "usb",
+    "firewall",
+    "security",
+    "mgmt",
+    "management",
+    "app",
+    "diagnosis",
+    "status",
+    "devmgr",
+    "ponopticalinfo",
+  ];
+  for (const tag of seedViews) {
+    if (isDeniedTag(tag)) continue;
+    allTags.add(tag);
+    try {
+      const result = await probeReadTag(page, "menuView", tag);
+      if (result.status >= 200 && result.status < 300) {
+        for (const t of extractTagsFromText(result.body)) allTags.add(t);
+      }
+      await sleep(Math.min(options.delayMs, 500));
+    } catch {
+      // ignore
+    }
+  }
+
+  // Soft-navigate discovered menu nodes (menuData for lua tags).
   let navigated = 0;
-  for (const item of menuTree) {
-    if (navigated >= 30) break;
+  for (const item of [...merged.values()]) {
+    if (navigated >= 40) break;
     const tag = item.tag ?? "";
     if (tag && isDeniedTag(tag)) continue;
     if (item.href && isDeniedUrl(item.href)) continue;
@@ -481,11 +583,17 @@ async function softNavigateMenus(
           timeout: 15_000,
         });
       } else if (tag) {
-        const url = `${baseUrl(options.routerUrl)}/?_type=menuView&_tag=${encodeURIComponent(tag)}`;
-        await page.goto(url, {
-          waitUntil: "domcontentloaded",
-          timeout: 15_000,
-        });
+        const type = /\.(lua|lp|gch)$/i.test(tag) ? "menuData" : "menuView";
+        const result = await probeReadTag(page, type, tag);
+        if (result.status === 404) continue;
+        for (const t of extractTagsFromText(result.body)) allTags.add(t);
+        // Also try loading via same-origin navigation for DOM menus.
+        if (type === "menuView") {
+          await page.goto(
+            `${baseUrl(options.routerUrl)}/?_type=menuView&_tag=${encodeURIComponent(tag)}`,
+            { waitUntil: "domcontentloaded", timeout: 15_000 },
+          );
+        }
       } else {
         continue;
       }
@@ -499,9 +607,63 @@ async function softNavigateMenus(
         ),
         redactSecrets(html),
       );
+      for (const t of extractTagsFromText(html)) allTags.add(t);
+      remember(await extractMenuTree(page));
       await sleep(options.delayMs);
     } catch {
       // Skip fragile menu nodes.
     }
+  }
+
+  console.log(
+    `[discover] deep walk: clicked=${clicked} softNav=${navigated} menuNodes=${merged.size}`,
+  );
+  return [...merged.values()];
+}
+
+/** Fill empty endpoint field/object lists from passive exchange previews. */
+function enrichEndpointsFromExchanges(
+  endpoints: EndpointRecord[],
+  exchanges: CapturedExchange[],
+): void {
+  const byTag = new Map<string, CapturedExchange[]>();
+  for (const ex of exchanges) {
+    const tag = ex.query?._tag;
+    if (!tag) continue;
+    if (ex.status < 200 || ex.status >= 300) continue;
+    if (ex.sessionState === "timeout") continue;
+    const list = byTag.get(tag) ?? [];
+    list.push(ex);
+    byTag.set(tag, list);
+  }
+
+  for (const ep of endpoints) {
+    const tag = ep.dataTag ?? ep.viewTag ?? ep.id;
+    const samples = byTag.get(tag) ?? [];
+    if (samples.length === 0) continue;
+
+    const fields = new Set(ep.fields);
+    const objects = new Set(ep.objectNames);
+    const actions = new Set(ep.actionsDetected);
+    let bestStatus = ep.status ?? 0;
+
+    for (const sample of samples) {
+      const body = sample.responseBodyPreview ?? "";
+      for (const f of extractParaNames(body)) fields.add(f);
+      for (const o of extractObjectNames(body)) objects.add(o);
+      for (const a of extractActions(body)) actions.add(a);
+      if (
+        sample.status >= 200 &&
+        sample.status < 300 &&
+        (bestStatus === 0 || bestStatus === 404)
+      ) {
+        bestStatus = sample.status;
+      }
+    }
+
+    ep.fields = [...fields].sort();
+    ep.objectNames = [...objects].sort();
+    ep.actionsDetected = [...actions].sort();
+    if (bestStatus) ep.status = bestStatus;
   }
 }

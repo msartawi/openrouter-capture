@@ -24,7 +24,7 @@ Log in manually in Chromium, then press Enter in the terminal.
 
 | Mode | Status |
 |---|---|
-| `discover` | Stage 1 — production (`v0.1.1`: warm-up, menu extract, redaction) |
+| `discover` | Stage 1 — production (`v0.1.6`: deep menu walk + exchange enrich) |
 | `simulate` | Stage 2 — not implemented |
 | `verify` | Stage 3 — not implemented |
 

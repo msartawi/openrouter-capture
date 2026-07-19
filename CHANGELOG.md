@@ -2,6 +2,17 @@
 
 All notable changes will be documented here.
 
+## [0.1.6] — 2026-07-20
+
+### Added
+
+- Deep menu walk before probing: click top labels (Internet/Local/WLAN/…), seed common view tags, soft-nav discovered nodes.
+- Enrich empty endpoint field/object lists from passive exchange previews.
+
+### Changed
+
+- Menu walk runs before tag probes so Internet/diag tags are included in the catalog.
+
 ## [0.1.5] — 2026-07-20
 
 ### Fixed
