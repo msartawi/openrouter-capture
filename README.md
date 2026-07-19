@@ -25,10 +25,10 @@ npm run capture -- crawl --router http://192.168.1.1 --output ./captures/zte-f66
 ```
 
 1. Chromium opens headed on the router URL.
-2. Log in manually in the browser.
-3. Return to the terminal and press **Enter** to start the crawl.
-4. The tool records GET traffic, saves pages/scripts, extracts `_tag` / `OBJ_*` patterns, and writes a catalog under `--output`.
-5. **No POST** requests are sent by the crawler in `discover` mode (operator login may have posted earlier).
+2. Log in manually in the browser and wait for the **main home GUI**.
+3. Return to the terminal and press **Enter once** (the crawler walks menus itself — do not press Enter after each tab).
+4. The tool records traffic, saves pages/scripts, extracts `_tag` / `OBJ_*` patterns, and writes a catalog under `--output`.
+5. After Enter, write-like POSTs are blocked; ZTE read-style `menuData`/`menuView` POSTs are still allowed.
 
 ### Modes
 

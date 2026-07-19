@@ -10,7 +10,7 @@ export interface CrawlOptions {
 }
 
 export const DEFAULTS: { delayMs: number; maxRequests: number } = {
-  delayMs: 250,
+  delayMs: 750,
   maxRequests: 500,
 };
 

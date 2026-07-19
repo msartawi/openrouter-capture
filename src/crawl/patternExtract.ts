@@ -54,13 +54,41 @@ export function extractActions(text: string): string[] {
 export function classifySessionState(
   body: string,
 ): "valid" | "timeout" | "unknown" {
-  if (/SessionTimeout/i.test(body) || /session\s*time\s*out/i.test(body)) {
+  const trimmed = body.trim();
+  // 404/HTML shells often embed the word SessionTimeout in JS — ignore those.
+  const looksHtml = /^<!DOCTYPE|^<html[\s>]/i.test(trimmed);
+  const looksAjax =
+    /ajax_response_xml_root|IF_ERRORSTR|IF_ERRORID|OBJ_/i.test(trimmed) ||
+    (trimmed.startsWith("{") && /sess_token|loginErrMsg/i.test(trimmed));
+
+  if (looksAjax) {
+    if (
+      /<IF_ERRORSTR>\s*SessionTimeout\s*<\/IF_ERRORSTR>/i.test(trimmed) ||
+      /"IF_ERRORSTR"\s*:\s*"SessionTimeout"/i.test(trimmed)
+    ) {
+      return "timeout";
+    }
+    if (/OBJ_|IF_ERRORID|ajax_response_xml_root/i.test(trimmed)) {
+      return "valid";
+    }
+  }
+
+  if (!looksHtml && /SessionTimeout/i.test(trimmed)) {
     return "timeout";
   }
-  if (/OBJ_|ajax_response_xml_root|IF_ERRORID/i.test(body)) {
+
+  if (/OBJ_|ajax_response_xml_root|IF_ERRORID/i.test(trimmed)) {
     return "valid";
   }
   return "unknown";
+}
+
+/** Prefer menuData for lua/lp tags; menuView first only for short view tags. */
+export function probeTypesForTag(tag: string): Array<"menuView" | "menuData" | "hiddenData"> {
+  if (/\.(lua|lp|gch)$/i.test(tag) || /_lua\.lua$/i.test(tag) || /_data$/i.test(tag)) {
+    return ["menuData", "hiddenData", "menuView"];
+  }
+  return ["menuView", "menuData", "hiddenData"];
 }
 
 export function parseQuery(url: string): Record<string, string> {

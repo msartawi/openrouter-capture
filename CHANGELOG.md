@@ -2,6 +2,18 @@
 
 All notable changes will be documented here.
 
+## [0.1.5] — 2026-07-20
+
+### Fixed
+
+- Do not treat HTML 404 pages as `SessionTimeout` (false re-warm loops).
+- Probe `menuData` first for `*_lua.lua` / `*_data` tags; keep best non-404 status in the catalog.
+- Default `--delay-ms` raised from 250 → 750 to reduce CPE hammering.
+
+### Changed
+
+- Clearer login handoff instructions: log in once, wait for home GUI, press Enter once (crawler navigates menus).
+
 ## [0.1.4] — 2026-07-20
 
 ### Fixed

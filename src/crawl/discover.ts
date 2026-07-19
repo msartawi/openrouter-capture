@@ -13,6 +13,7 @@ import {
   extractParaNames,
   extractTagsFromText,
   parseQuery,
+  probeTypesForTag,
 } from "./patternExtract.js";
 import {
   ensureOutputDirs,
@@ -38,9 +39,12 @@ function baseUrl(routerUrl: string): string {
 async function waitForManualLogin(): Promise<void> {
   const rl = createInterface({ input, output });
   console.log("");
-  console.log(">>> Log in to the router in the Chromium window now (login POSTs are allowed).");
-  console.log(">>> Wait until you see the main GUI (not the login page).");
-  console.log(">>> Only then return here and press Enter — that starts the crawl and blocks further POSTs.");
+  console.log(">>> CORRECT FLOW (do this once):");
+  console.log(">>>   1) Log in in Chromium");
+  console.log(">>>   2) Wait until the main home/dashboard GUI is visible");
+  console.log(">>>   3) Press Enter here — the crawler visits menus itself");
+  console.log(">>> Do NOT press Enter after each Internet/Local/WLAN tab.");
+  console.log(">>> Optional: click a few menus before Enter to seed tags; still press Enter only once.");
   console.log("");
   await rl.question("Press Enter to start discover crawl… ");
   rl.close();
@@ -108,7 +112,7 @@ async function warmSession(page: Page, _routerUrl: string): Promise<boolean> {
   ];
 
   for (const tag of warmTags) {
-    for (const type of ["menuView", "menuData"] as const) {
+    for (const type of probeTypesForTag(tag)) {
       try {
         const result = await probeReadTag(page, type, tag);
         if (
@@ -308,7 +312,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     }
   }
 
-  // Prefer menuView before menuData; probe via in-page fetch (GET then read POST).
+  // Probe via in-page fetch; lua/_data tags prefer menuData first.
   const skipProbe = /^(login_entry|login_token|logout_entry)$/i;
   const tagsToProbe = [...allTags]
     .filter((t) => !isDeniedTag(t) && !skipProbe.test(t))
@@ -321,12 +325,12 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
   for (const tag of tagsToProbe) {
     if (requestCount >= options.maxRequests) break;
 
-    const types = ["menuView", "menuData", "hiddenData"] as const;
+    const types = probeTypesForTag(tag);
     const objectNames = new Set<string>();
     const fields = new Set<string>();
     const actions = new Set<string>();
-    let lastStatus = 0;
-    let sampleBody = "";
+    let bestStatus = 0;
+    let bestBody = "";
     let sawTimeout = false;
     let viewTag: string | undefined;
     let dataTag: string | undefined;
@@ -336,14 +340,12 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
       requestCount += 1;
       try {
         let result = await probeReadTag(page, type, tag);
-        // probeReadTag may do GET+POST; count the extra attempt
         if (result.method === "POST") requestCount += 1;
 
-        lastStatus = result.status;
-        sampleBody = result.body;
         if (type === "menuView") viewTag = tag;
         if (type === "menuData") dataTag = tag;
 
+        const sessionState = classifySessionState(result.body);
         exchanges.push({
           timestamp: new Date().toISOString(),
           method: result.method,
@@ -355,10 +357,9 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
           status: result.status,
           contentType: undefined,
           responseBodyPreview: previewBody(result.body),
-          sessionState: classifySessionState(result.body),
+          sessionState,
         });
 
-        const sessionState = classifySessionState(result.body);
         if (sessionState === "timeout") {
           sawTimeout = true;
           console.warn(`[discover] SessionTimeout for ${tag} — re-warming`);
@@ -367,34 +368,44 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
           requestCount += 1;
           result = await probeReadTag(page, type, tag);
           if (result.method === "POST") requestCount += 1;
-          lastStatus = result.status;
-          sampleBody = result.body;
-          if (classifySessionState(sampleBody) === "timeout") {
-            break;
+          if (classifySessionState(result.body) === "timeout") {
+            continue;
           }
         }
 
-        if (lastStatus === 404) {
+        if (result.status === 404) {
           continue;
         }
 
-        for (const o of extractObjectNames(sampleBody)) objectNames.add(o);
-        for (const f of extractParaNames(sampleBody)) {
+        const useful =
+          result.status >= 200 &&
+          result.status < 300 &&
+          (classifySessionState(result.body) === "valid" ||
+            extractObjectNames(result.body).length > 0 ||
+            extractParaNames(result.body).length > 0);
+
+        if (useful || bestStatus === 0) {
+          bestStatus = result.status;
+          bestBody = result.body;
+        }
+
+        for (const o of extractObjectNames(result.body)) objectNames.add(o);
+        for (const f of extractParaNames(result.body)) {
           fields.add(f);
           allFields.add(f);
         }
-        for (const a of extractActions(sampleBody)) actions.add(a);
-        for (const t of extractTagsFromText(sampleBody)) allTags.add(t);
+        for (const a of extractActions(result.body)) actions.add(a);
+        for (const t of extractTagsFromText(result.body)) allTags.add(t);
 
         for (const o of objectNames) {
           objects[o] ??= [];
-          if (sampleBody.includes(o) && objects[o].length < 3) {
+          if (result.body.includes(o) && objects[o].length < 3) {
             objects[o].push({
               tag,
               type,
               method: result.method,
-              status: lastStatus,
-              preview: previewBody(sampleBody, 1500),
+              status: result.status,
+              preview: previewBody(result.body, 1500),
             });
           }
         }
@@ -412,18 +423,18 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
       actionsDetected: [...actions],
       writeTested: false,
       risk: riskForTag(tag),
-      status: lastStatus || undefined,
+      status: bestStatus || undefined,
       objectNames: [...objectNames],
     });
 
-    if (sampleBody && objectNames.size > 0 && !sawTimeout) {
+    if (bestBody && objectNames.size > 0 && !sawTimeout) {
       await writeText(
         path.join(
           options.outputDir,
           "responses",
           `${tag.replace(/[^\w.-]+/g, "_")}.txt`,
         ),
-        redactSecrets(sampleBody),
+        redactSecrets(bestBody),
       );
     }
   }
@@ -439,7 +450,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     fields: [...allFields].sort(),
     exchanges,
     tags: [...allTags].sort(),
-    version: "0.1.4",
+    version: "0.1.5",
   });
 
   console.log("");
