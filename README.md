@@ -26,6 +26,13 @@ npm run capture -- crawl --router http://192.168.1.1 --output ./captures/zte-f66
 
 Or set `ROUTER_USERNAME` / `ROUTER_PASSWORD` in a local `.env` (never commit it).
 
+Score a finished capture (exit 0 = pass Stage 1 bar):
+
+```powershell
+npm run score:capture -- ./captures/zte-f6600p-v016
+npm run score:capture -- ./captures/zte-f6600p-v016 --raised
+```
+
 ### Manual login (no credentials)
 
 ```powershell

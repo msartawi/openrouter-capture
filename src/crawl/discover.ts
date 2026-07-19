@@ -480,7 +480,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     fields: [...allFields].sort(),
     exchanges,
     tags: [...allTags].sort(),
-    version: "0.1.8",
+    version: "0.1.9",
   });
 
   console.log("");

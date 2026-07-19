@@ -1,6 +1,6 @@
 {
   "name": "openrouter-capture",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "description": "Local Playwright helper to discover ZTE router APIs for OpenRouterDesk. Not part of the public app.",
   "license": "MIT",
@@ -14,6 +14,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:smoke": "npm run build && node scripts/smoke-redact.mjs",
     "check": "npm run typecheck && npm run build && node scripts/smoke-redact.mjs",
+    "score:capture": "node scripts/score-capture.mjs",
     "capture": "tsx src/cli.ts",
     "crawl": "tsx src/cli.ts crawl",
     "postinstall": "node scripts/postinstall.mjs"

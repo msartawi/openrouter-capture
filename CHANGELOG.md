@@ -2,6 +2,12 @@
 
 All notable changes will be documented here.
 
+## [0.1.9] — 2026-07-20
+
+### Added
+
+- `npm run score:capture -- <capture-dir>` scores Stage 1 catalog richness (menu/tags/rich endpoints/2xx) with optional `--raised` bar for clean-release checks.
+
 ## [0.1.8] — 2026-07-20
 
 ### Added
