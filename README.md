@@ -4,6 +4,8 @@ Local-only Playwright helper to discover router web APIs (ZTE F6600P first) for 
 
 **Not** part of the OpenRouterDesk Electron app. Keep this repository separate; do not copy the crawler or raw captures into the app tree.
 
+**Start here:** [START_HERE.md](START_HERE.md) · **Agent handoff:** [HANDOVER.md](HANDOVER.md)
+
 Methodology: OpenRouterDesk [`docs/OPENROUTER_CAPTURE.md`](https://github.com/msartawi/openrouterdesk/blob/main/docs/OPENROUTER_CAPTURE.md) and [ADR 0007](https://github.com/msartawi/openrouterdesk/blob/main/docs/decisions/0007-standalone-capture-tool.md).
 
 ## Setup
