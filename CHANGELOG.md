@@ -2,6 +2,13 @@
 
 All notable changes will be documented here.
 
+## [0.1.7] — 2026-07-20
+
+### Fixed
+
+- Close unexpected extra Chromium tabs/windows opened by deep menu clicks (`target=_blank` / `window.open`).
+- Force menu link clicks to `_self`; prefer same-tab navigation during soft menu walk.
+
 ## [0.1.6] — 2026-07-20
 
 ### Added

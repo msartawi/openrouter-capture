@@ -161,6 +161,20 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
   });
   const page = await context.newPage();
 
+  // Deep menu clicks sometimes open target=_blank / window.open — keep one tab.
+  context.on("page", (extra) => {
+    if (extra === page) return;
+    void (async () => {
+      try {
+        const url = extra.url();
+        console.warn(`[discover] closing extra tab/window: ${url || "(loading)"}`);
+        await extra.close();
+      } catch {
+        // already closed
+      }
+    })();
+  });
+
   // Do NOT block POSTs yet — operator login must be able to POST login_entry.
   // POST abort is installed only after the Enter handoff below.
 
@@ -453,7 +467,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     fields: [...allFields].sort(),
     exchanges,
     tags: [...allTags].sort(),
-    version: "0.1.6",
+    version: "0.1.7",
   });
 
   console.log("");
@@ -514,6 +528,15 @@ async function deepWalkMenus(
           return t && t.length < 40 && t.toLowerCase() === want;
         });
         if (!el) return false;
+        // Stay in the same tab: neutralize target=_blank before click.
+        if (el.tagName === "A") {
+          el.setAttribute("target", "_self");
+          el.removeAttribute("rel");
+        }
+        const opener = el.closest("a");
+        if (opener) {
+          opener.setAttribute("target", "_self");
+        }
         el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
         return true;
       })()`)) as boolean;
@@ -587,12 +610,13 @@ async function deepWalkMenus(
         const result = await probeReadTag(page, type, tag);
         if (result.status === 404) continue;
         for (const t of extractTagsFromText(result.body)) allTags.add(t);
-        // Also try loading via same-origin navigation for DOM menus.
+        // Prefer in-page fetch over full navigation (avoids new tabs / full reloads).
         if (type === "menuView") {
-          await page.goto(
-            `${baseUrl(options.routerUrl)}/?_type=menuView&_tag=${encodeURIComponent(tag)}`,
-            { waitUntil: "domcontentloaded", timeout: 15_000 },
-          );
+          const next = `/?_type=menuView&_tag=${encodeURIComponent(tag)}`;
+          await page.evaluate(`(() => {
+            window.location.assign(${JSON.stringify(next)});
+          })()`).catch(() => undefined);
+          await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
         }
       } else {
         continue;

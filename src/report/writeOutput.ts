@@ -43,7 +43,7 @@ export async function writeDiscoverReport(args: {
     capturedAt: new Date().toISOString(),
     mode: "discover",
     tool: "openrouter-capture",
-    version: args.version ?? "0.1.6",
+    version: args.version ?? "0.1.7",
   });
 
   await writeJson(path.join(outputDir, "menu-tree.json"), args.menuTree);
