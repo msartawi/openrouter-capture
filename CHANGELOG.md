@@ -2,6 +2,12 @@
 
 All notable changes will be documented here.
 
+## [0.1.4] — 2026-07-20
+
+### Fixed
+
+- Tag probes no longer use bare `page.request` GETs (were returning 404). They run in-page `fetch` with session cookies: GET first (matches home `dataTransfer`), then read-style POST if needed.
+
 ## [0.1.3] — 2026-07-20
 
 ### Fixed

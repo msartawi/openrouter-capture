@@ -52,30 +52,78 @@ function previewBody(body: string, max = 4000): string {
   return `${redacted.slice(0, max)}\n…[truncated ${redacted.length - max} chars]`;
 }
 
-/** Warm authenticated session with menuView-first GETs (no POST). */
-async function warmSession(page: Page, routerUrl: string): Promise<boolean> {
-  const base = baseUrl(routerUrl);
+type ProbeResult = { status: number; body: string; method: string };
+
+/**
+ * Fetch from the page JS context so cookies/session match the GUI.
+ * String evaluate avoids tsx __name injection into Playwright.
+ */
+async function sessionFetch(
+  page: Page,
+  pathAndQuery: string,
+  method: "GET" | "POST",
+): Promise<ProbeResult> {
+  const payload = JSON.stringify({ pathAndQuery, method });
+  return page.evaluate(`(async () => {
+    const { pathAndQuery, method } = ${payload};
+    /** @type {RequestInit} */
+    const init = {
+      method: method,
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+    };
+    if (method === "POST") {
+      init.headers["Content-Type"] = "application/x-www-form-urlencoded";
+      init.body = "";
+    }
+    const res = await fetch(pathAndQuery, init);
+    return { status: res.status, body: await res.text(), method: method };
+  })()`) as Promise<ProbeResult>;
+}
+
+async function probeReadTag(
+  page: Page,
+  type: string,
+  tag: string,
+): Promise<ProbeResult> {
+  const pathAndQuery = `/?_type=${encodeURIComponent(type)}&_tag=${encodeURIComponent(tag)}&_=${Date.now()}`;
+  // Home GUI uses dataTransfer(..., "GET", ...); try GET first, then read-style POST.
+  let result = await sessionFetch(page, pathAndQuery, "GET");
+  if (result.status === 404 || result.status === 405 || result.status === 0) {
+    result = await sessionFetch(page, pathAndQuery, "POST");
+  }
+  return result;
+}
+
+/** Warm authenticated session with menuView/menuData via in-page fetch. */
+async function warmSession(page: Page, _routerUrl: string): Promise<boolean> {
   const warmTags = [
-    "home",
-    "status",
-    "devmgr",
-    "localnet",
-    "internet",
+    "firewall_homepage_lua.lua",
     "wlan_homepage_lua.lua",
     "accessdev_homepage_lua.lua",
+    "sntp_data",
+    "home",
+    "status",
   ];
 
   for (const tag of warmTags) {
-    try {
-      const url = `${base}/?_type=menuView&_tag=${encodeURIComponent(tag)}`;
-      const res = await page.request.get(url);
-      const body = await res.text();
-      if (classifySessionState(body) === "valid") {
-        console.log(`[discover] session warm via menuView _tag=${tag}`);
-        return true;
+    for (const type of ["menuView", "menuData"] as const) {
+      try {
+        const result = await probeReadTag(page, type, tag);
+        if (
+          result.status >= 200 &&
+          result.status < 300 &&
+          classifySessionState(result.body) === "valid"
+        ) {
+          console.log(
+            `[discover] session warm via ${result.method} ${type} _tag=${tag}`,
+          );
+          return true;
+        }
+      } catch {
+        // try next
       }
-    } catch {
-      // try next
     }
   }
 
@@ -260,52 +308,74 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     }
   }
 
-  // Prefer menuView before menuData (warm-up order) for discovered tags.
-  const tagsToProbe = [...allTags].filter((t) => !isDeniedTag(t)).slice(
-    0,
-    Math.max(0, options.maxRequests - requestCount),
-  );
+  // Prefer menuView before menuData; probe via in-page fetch (GET then read POST).
+  const skipProbe = /^(login_entry|login_token|logout_entry)$/i;
+  const tagsToProbe = [...allTags]
+    .filter((t) => !isDeniedTag(t) && !skipProbe.test(t))
+    .slice(0, Math.max(0, options.maxRequests - requestCount));
 
-  console.log(`Probing ${tagsToProbe.length} tags (read-only GETs)…`);
+  console.log(
+    `Probing ${tagsToProbe.length} tags (in-page GET, then read-style POST)…`,
+  );
 
   for (const tag of tagsToProbe) {
     if (requestCount >= options.maxRequests) break;
 
-    const candidates = [
-      `${baseUrl(options.routerUrl)}/?_type=menuView&_tag=${encodeURIComponent(tag)}`,
-      `${baseUrl(options.routerUrl)}/?_type=menuData&_tag=${encodeURIComponent(tag)}`,
-      `${baseUrl(options.routerUrl)}/?_type=hiddenData&_tag=${encodeURIComponent(tag)}`,
-    ];
-
+    const types = ["menuView", "menuData", "hiddenData"] as const;
     const objectNames = new Set<string>();
     const fields = new Set<string>();
     const actions = new Set<string>();
     let lastStatus = 0;
     let sampleBody = "";
     let sawTimeout = false;
+    let viewTag: string | undefined;
+    let dataTag: string | undefined;
 
-    for (const probeUrl of candidates) {
+    for (const type of types) {
       if (requestCount >= options.maxRequests) break;
       requestCount += 1;
       try {
-        const res = await page.request.get(probeUrl);
-        lastStatus = res.status();
-        const body = await res.text();
-        sampleBody = body;
-        const sessionState = classifySessionState(body);
+        let result = await probeReadTag(page, type, tag);
+        // probeReadTag may do GET+POST; count the extra attempt
+        if (result.method === "POST") requestCount += 1;
 
+        lastStatus = result.status;
+        sampleBody = result.body;
+        if (type === "menuView") viewTag = tag;
+        if (type === "menuData") dataTag = tag;
+
+        exchanges.push({
+          timestamp: new Date().toISOString(),
+          method: result.method,
+          path: "/",
+          query: redactQuery({
+            _type: type,
+            _tag: tag,
+          }),
+          status: result.status,
+          contentType: undefined,
+          responseBodyPreview: previewBody(result.body),
+          sessionState: classifySessionState(result.body),
+        });
+
+        const sessionState = classifySessionState(result.body);
         if (sessionState === "timeout") {
           sawTimeout = true;
           console.warn(`[discover] SessionTimeout for ${tag} — re-warming`);
           warmed = (await warmSession(page, options.routerUrl)) || warmed;
           if (requestCount >= options.maxRequests) break;
           requestCount += 1;
-          const retry = await page.request.get(probeUrl);
-          lastStatus = retry.status();
-          sampleBody = await retry.text();
+          result = await probeReadTag(page, type, tag);
+          if (result.method === "POST") requestCount += 1;
+          lastStatus = result.status;
+          sampleBody = result.body;
           if (classifySessionState(sampleBody) === "timeout") {
             break;
           }
+        }
+
+        if (lastStatus === 404) {
+          continue;
         }
 
         for (const o of extractObjectNames(sampleBody)) objectNames.add(o);
@@ -314,26 +384,30 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
           allFields.add(f);
         }
         for (const a of extractActions(sampleBody)) actions.add(a);
+        for (const t of extractTagsFromText(sampleBody)) allTags.add(t);
 
         for (const o of objectNames) {
           objects[o] ??= [];
           if (sampleBody.includes(o) && objects[o].length < 3) {
             objects[o].push({
               tag,
+              type,
+              method: result.method,
               status: lastStatus,
               preview: previewBody(sampleBody, 1500),
             });
           }
         }
       } catch (err) {
-        console.warn(`Probe failed ${probeUrl}`, err);
+        console.warn(`Probe failed ${type}/${tag}`, err);
       }
       await sleep(options.delayMs);
     }
 
     endpoints.push({
       id: tag.replace(/[^\w.-]+/g, "_"),
-      dataTag: tag,
+      viewTag,
+      dataTag: dataTag ?? tag,
       fields: [...fields],
       actionsDetected: [...actions],
       writeTested: false,
@@ -365,7 +439,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     fields: [...allFields].sort(),
     exchanges,
     tags: [...allTags].sort(),
-    version: "0.1.3",
+    version: "0.1.4",
   });
 
   console.log("");
