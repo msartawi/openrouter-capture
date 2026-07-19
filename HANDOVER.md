@@ -29,7 +29,7 @@ It is **not** the Electron app. Never merge this crawler into `openrouterdesk` a
 | Local path | `c:\Projects\openrouter-capture` |
 | Git | Initialized; `origin` → `msartawi/openrouter-capture` |
 | GitHub | **Public** repo exists (MIT, Issues on, Wiki off) |
-| Default branch | `main` only (no `develop` / `beta` yet — optional parity with openrouterdesk) |
+| Default branch | `main` (plus long-lived `develop` / `beta`, synced to `main` at v0.1.0) |
 | Topics | `playwright`, `typescript`, `router`, `zte`, `api-discovery`, `openrouterdesk` |
 | CODEOWNERS | `@msartawi` |
 | CI | `.github/workflows/ci.yml` present; Dependabot open |
