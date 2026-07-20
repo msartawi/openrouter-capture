@@ -2,6 +2,18 @@
 
 All notable changes will be documented here.
 
+## [0.1.10] — 2026-07-20
+
+### Added
+
+- Parse ZTE embedded `menuTreeJSON` after login to harvest menu ids and `.lp`/`.lua` area pages before probing.
+
+### Fixed
+
+- Prefer data-like tags when probing; omit empty section stubs from `endpoints.json`.
+- Treat HTML 404 shells as non-timeout; enrich endpoints from exchanges that still contain `ParaName`/`OBJ_` payloads.
+- Score script counts nested menu-tree nodes and reads `exchanges` wrapper objects.
+
 ## [0.1.9] — 2026-07-20
 
 ### Added

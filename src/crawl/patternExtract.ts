@@ -56,7 +56,15 @@ export function classifySessionState(
 ): "valid" | "timeout" | "unknown" {
   const trimmed = body.trim();
   // 404/HTML shells often embed the word SessionTimeout in JS — ignore those.
-  const looksHtml = /^<!DOCTYPE|^<html[\s>]/i.test(trimmed);
+  const looksHtml =
+    /^<!DOCTYPE/i.test(trimmed) ||
+    /^<html[\s>]/i.test(trimmed) ||
+    /<title>\s*404\s+Not Found\s*<\/title>/i.test(trimmed);
+
+  if (looksHtml && !/ajax_response_xml_root|IF_ERRORSTR/i.test(trimmed)) {
+    return "unknown";
+  }
+
   const looksAjax =
     /ajax_response_xml_root|IF_ERRORSTR|IF_ERRORID|OBJ_/i.test(trimmed) ||
     (trimmed.startsWith("{") && /sess_token|loginErrMsg/i.test(trimmed));

@@ -6,7 +6,13 @@ import { isDeniedTag, isDeniedUrl } from "../denylist.js";
 import { redactQuery, redactSecrets } from "../redact.js";
 import type { CapturedExchange, CrawlOptions, EndpointRecord } from "../types.js";
 import { autoLogin } from "./login.js";
-import { extractMenuTree } from "./menuParser.js";
+import {
+  extractMenuTree,
+  harvestMenuTreeJson,
+  isLikelyDataTag,
+  isSectionStubTag,
+  type MenuNode,
+} from "./menuParser.js";
 import {
   classifySessionState,
   extractActions,
@@ -338,14 +344,41 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
 
   // Walk menus BEFORE probing so Internet/Local/diag tags are discovered.
   const walkedMenu = await deepWalkMenus(page, menuTree, options, allTags);
+
+  // Return to home and parse authoritative ZTE menuTreeJSON.
+  try {
+    await page.goto(options.routerUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 30_000,
+    });
+  } catch {
+    // continue with current document
+  }
+  const homeHtml = await page.content();
+  const harvested = harvestMenuTreeJson(homeHtml);
+  if (harvested.tags.length > 0) {
+    for (const t of harvested.tags) allTags.add(t);
+    console.log(
+      `[discover] menuTreeJSON: nodes≈${countMenuNodes(harvested.tree)} tags=${harvested.tags.length}`,
+    );
+  }
+  const catalogMenu =
+    harvested.tree.length > 0 ? harvested.tree : walkedMenu;
+
   console.log(
     `Menu candidates (after walk): ${walkedMenu.length}; tags so far: ${allTags.size}`,
   );
 
-  // Probe via in-page fetch; lua/_data tags prefer menuData first.
+  // Probe via in-page fetch; lua/_data/.lp tags prefer menuData first.
   const skipProbe = /^(login_entry|login_token|logout_entry)$/i;
   const tagsToProbe = [...allTags]
     .filter((t) => !isDeniedTag(t) && !skipProbe.test(t))
+    .sort((a, b) => {
+      const da = isLikelyDataTag(a) ? 0 : isSectionStubTag(a) ? 2 : 1;
+      const db = isLikelyDataTag(b) ? 0 : isSectionStubTag(b) ? 2 : 1;
+      if (da !== db) return da - db;
+      return a.localeCompare(b);
+    })
     .slice(0, Math.max(0, options.maxRequests - requestCount));
 
   console.log(
@@ -439,6 +472,11 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
             });
           }
         }
+
+        // Enough signal for this tag — skip remaining probe types.
+        if (objectNames.size > 0 || fields.size > 0) {
+          break;
+        }
       } catch (err) {
         console.warn(`Probe failed ${type}/${tag}`, err);
       }
@@ -457,6 +495,18 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
       objectNames: [...objectNames],
     });
 
+    // Drop empty section stubs from the catalog (they pollute richness ratios).
+    const last = endpoints[endpoints.length - 1];
+    if (
+      last &&
+      isSectionStubTag(tag) &&
+      last.fields.length === 0 &&
+      last.objectNames.length === 0 &&
+      (!last.status || last.status >= 400)
+    ) {
+      endpoints.pop();
+    }
+
     if (bestBody && objectNames.size > 0 && !sawTimeout) {
       await writeText(
         path.join(
@@ -474,13 +524,13 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
   await writeDiscoverReport({
     outputDir: options.outputDir,
     routerUrl: options.routerUrl,
-    menuTree: walkedMenu,
+    menuTree: catalogMenu,
     endpoints,
     objects,
     fields: [...allFields].sort(),
     exchanges,
     tags: [...allTags].sort(),
-    version: "0.1.9",
+    version: "0.1.10",
   });
 
   console.log("");
@@ -497,8 +547,8 @@ async function deepWalkMenus(
   initialMenu: { text: string; href?: string; tag?: string }[],
   options: CrawlOptions,
   allTags: Set<string>,
-): Promise<{ text: string; href?: string; tag?: string; children: unknown[] }[]> {
-  const merged = new Map<string, { text: string; href?: string; tag?: string; children: unknown[] }>();
+): Promise<MenuNode[]> {
+  const merged = new Map<string, MenuNode>();
   const remember = (nodes: { text: string; href?: string; tag?: string }[]) => {
     for (const n of nodes) {
       if (n.tag) allTags.add(n.tag);
@@ -668,7 +718,11 @@ function enrichEndpointsFromExchanges(
     const tag = ex.query?._tag;
     if (!tag) continue;
     if (ex.status < 200 || ex.status >= 300) continue;
-    if (ex.sessionState === "timeout") continue;
+    const body = ex.responseBodyPreview ?? "";
+    const hasPayload =
+      extractParaNames(body).length > 0 || extractObjectNames(body).length > 0;
+    // Old captures mislabeled HTML 404s as timeout; still enrich if payload exists.
+    if (ex.sessionState === "timeout" && !hasPayload) continue;
     const list = byTag.get(tag) ?? [];
     list.push(ex);
     byTag.set(tag, list);
@@ -703,4 +757,16 @@ function enrichEndpointsFromExchanges(
     ep.actionsDetected = [...actions].sort();
     if (bestStatus) ep.status = bestStatus;
   }
+}
+
+function countMenuNodes(nodes: MenuNode[]): number {
+  let n = 0;
+  const walk = (list: MenuNode[]) => {
+    for (const node of list) {
+      n += 1;
+      if (node.children?.length) walk(node.children);
+    }
+  };
+  walk(nodes);
+  return n;
 }

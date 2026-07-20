@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { harvestMenuTreeJson } from "../dist/crawl/menuParser.js";
 import { redactQuery, redactSecrets } from "../dist/redact.js";
 import {
   classifySessionState,
@@ -27,5 +28,18 @@ assert.equal(
   "timeout",
 );
 assert.equal(probeTypesForTag("firewall_homepage_lua.lua")[0], "menuData");
+
+const harvested = harvestMenuTreeJson(
+  `var menuTreeJSON = [{"id":"internet","name":"Internet","children":[{"id":"ponopticalinfo","name":"PON","area":[{"area":"poninfo_status_t.lp"}]}]}];`,
+);
+assert.equal(harvested.tags.includes("poninfo_status_t.lp"), true);
+assert.equal(harvested.tree[0]?.tag, "internet");
+
+assert.equal(
+  classifySessionState(
+    "<html>\n<head><title>404 Not Found</title><script>SessionTimeout</script></head></html>",
+  ),
+  "unknown",
+);
 
 console.log("redact smoke ok");

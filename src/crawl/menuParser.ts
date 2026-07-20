@@ -7,6 +7,12 @@ export interface MenuNode {
   children: MenuNode[];
 }
 
+export interface EmbeddedMenuHarvest {
+  tree: MenuNode[];
+  /** Menu ids + area page tags (`.lp` / `.lua`) from menuTreeJSON. */
+  tags: string[];
+}
+
 /**
  * Best-effort menu extraction for ZTE-style GUIs.
  * Uses a string evaluate body so tsx/esbuild cannot inject __name into the browser.
@@ -83,4 +89,73 @@ export async function extractMenuTree(page: Page): Promise<MenuNode[]> {
 
     return nodes;
   })()`) as Promise<MenuNode[]>;
+}
+
+type RawMenuJson = {
+  id?: string;
+  name?: string;
+  children?: RawMenuJson[];
+  area?: Array<{ area?: string } | string>;
+};
+
+/**
+ * Parse ZTE `var menuTreeJSON = [...]` from home HTML (authoritative menu catalog).
+ */
+export function harvestMenuTreeJson(html: string): EmbeddedMenuHarvest {
+  const match = html.match(/var\s+menuTreeJSON\s*=\s*(\[\{[\s\S]*?\}\]);/);
+  if (!match?.[1]) {
+    return { tree: [], tags: [] };
+  }
+
+  let raw: RawMenuJson[];
+  try {
+    raw = JSON.parse(match[1]) as RawMenuJson[];
+  } catch {
+    return { tree: [], tags: [] };
+  }
+
+  const tags = new Set<string>();
+
+  const convert = (nodes: RawMenuJson[]): MenuNode[] =>
+    nodes.map((n) => {
+      const id = String(n.id ?? "").trim();
+      const name = String(n.name ?? id).trim() || id;
+      if (id) tags.add(id);
+
+      const areas: string[] = [];
+      for (const a of n.area ?? []) {
+        const area =
+          typeof a === "string" ? a.trim() : String(a?.area ?? "").trim();
+        if (area) {
+          areas.push(area);
+          tags.add(area);
+        }
+      }
+
+      return {
+        text: name,
+        tag: id || undefined,
+        href: areas[0],
+        children: convert(n.children ?? []),
+      };
+    });
+
+  const tree = convert(Array.isArray(raw) ? raw : []);
+  return { tree, tags: [...tags].sort() };
+}
+
+/** Prefer probing page/data tags over bare section stubs. */
+export function isLikelyDataTag(tag: string): boolean {
+  return (
+    /\.(lua|lp|gch)$/i.test(tag) ||
+    /_data$/i.test(tag) ||
+    /_homepage_/i.test(tag) ||
+    /_(t|m)\.(lua|lp|gch)$/i.test(tag)
+  );
+}
+
+export function isSectionStubTag(tag: string): boolean {
+  if (isLikelyDataTag(tag)) return false;
+  if (/_entry$/i.test(tag)) return false;
+  return /^[A-Za-z][A-Za-z0-9]*$/.test(tag);
 }

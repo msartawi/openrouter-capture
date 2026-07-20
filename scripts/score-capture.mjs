@@ -82,7 +82,8 @@ function main() {
   const objectNames = Array.isArray(objectsDoc)
     ? objectsDoc
     : Object.keys(objectsDoc ?? {});
-  const menuNodes = Array.isArray(menuTree) ? menuTree : (menuTree.nodes ?? []);
+  const menuRoot = Array.isArray(menuTree) ? menuTree : (menuTree.nodes ?? []);
+  const menuNodes = countMenuNodes(menuRoot);
 
   const endpointList = Array.isArray(endpoints) ? endpoints : [];
   const withPayload = endpointList.filter(
@@ -114,7 +115,7 @@ function main() {
 
   const richRatioBar = raised ? 0.6 : 0.4;
   const gates = {
-    menuNodes: { value: menuNodes.length, min: 8, pass: menuNodes.length >= 8 },
+    menuNodes: { value: menuNodes, min: 8, pass: menuNodes >= 8 },
     tags: { value: tags.length, min: 25, pass: tags.length >= 25 },
     richRatio: {
       value: Number(richRatio.toFixed(4)),
@@ -143,7 +144,7 @@ function main() {
     raised,
     pass,
     metrics: {
-      menuNodes: menuNodes.length,
+      menuNodes,
       tags: tags.length,
       endpoints: endpointCount,
       richEndpoints: richCount,
@@ -163,6 +164,19 @@ function main() {
 
   console.log(JSON.stringify(out, null, 2));
   process.exit(pass ? 0 : 1);
+}
+
+function countMenuNodes(nodes) {
+  let n = 0;
+  const walk = (list) => {
+    if (!Array.isArray(list)) return;
+    for (const node of list) {
+      n += 1;
+      if (node?.children) walk(node.children);
+    }
+  };
+  walk(nodes);
+  return n;
 }
 
 main();
