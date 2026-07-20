@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { harvestMenuTreeJson } from "../dist/crawl/menuParser.js";
+import {
+  deriveAjaxTagsFromTemplate,
+  harvestMenuTreeJson,
+} from "../dist/crawl/menuParser.js";
 import { redactQuery, redactSecrets } from "../dist/redact.js";
 import {
   classifySessionState,
@@ -34,6 +37,13 @@ const harvested = harvestMenuTreeJson(
 );
 assert.equal(harvested.tags.includes("poninfo_status_t.lp"), true);
 assert.equal(harvested.tree[0]?.tag, "internet");
+
+assert.ok(
+  deriveAjaxTagsFromTemplate("firewall_config_t.lp").includes(
+    "firewall_config_lua.lua",
+  ),
+);
+assert.ok(deriveAjaxTagsFromTemplate("sntp_t.lp").includes("sntp_data"));
 
 assert.equal(
   classifySessionState(

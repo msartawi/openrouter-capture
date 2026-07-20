@@ -2,6 +2,16 @@
 
 All notable changes will be documented here.
 
+## [0.1.12] — 2026-07-20
+
+### Added
+
+- Derive ajax `_tag` candidates from menuTreeJSON `.lp` areas (`firewall_config_t.lp` → `firewall_config_lua.lua`, `sntp_data`, …).
+
+### Fixed
+
+- Keep `endpoints.json` lean: omit empty menu-id stubs without payload.
+
 ## [0.1.11] — 2026-07-20
 
 ### Fixed

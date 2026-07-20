@@ -7,6 +7,7 @@ import { redactQuery, redactSecrets } from "../redact.js";
 import type { CapturedExchange, CrawlOptions, EndpointRecord } from "../types.js";
 import { autoLogin } from "./login.js";
 import {
+  deriveAjaxTagsFromTemplate,
   extractMenuTree,
   harvestMenuTreeJson,
   isLikelyDataTag,
@@ -364,9 +365,14 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
   const homeHtml = await page.content();
   const harvested = harvestMenuTreeJson(homeHtml);
   if (harvested.tags.length > 0) {
-    for (const t of harvested.tags) allTags.add(t);
+    for (const t of harvested.tags) {
+      allTags.add(t);
+      for (const derived of deriveAjaxTagsFromTemplate(t)) {
+        allTags.add(derived);
+      }
+    }
     console.log(
-      `[discover] menuTreeJSON: nodes≈${countMenuNodes(harvested.tree)} tags=${harvested.tags.length}`,
+      `[discover] menuTreeJSON: nodes≈${countMenuNodes(harvested.tree)} tags=${harvested.tags.length} (plus derived ajax tags)`,
     );
   }
   const catalogMenu =
@@ -545,16 +551,22 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
       objectNames: [...objectNames],
     });
 
-    // Drop empty section stubs from the catalog (they pollute richness ratios).
+    // Keep catalog lean: only data-like tags or endpoints with payload/status.
     const last = endpoints[endpoints.length - 1];
-    if (
-      last &&
-      isSectionStubTag(tag) &&
-      last.fields.length === 0 &&
-      last.objectNames.length === 0 &&
-      (!last.status || last.status >= 400)
-    ) {
-      endpoints.pop();
+    if (last) {
+      const hasPayload =
+        last.fields.length > 0 || last.objectNames.length > 0;
+      const keep =
+        hasPayload ||
+        isLikelyDataTag(tag) ||
+        (typeof last.status === "number" &&
+          last.status >= 200 &&
+          last.status < 300 &&
+          Boolean(bestBody) &&
+          classifySessionState(bestBody) === "valid");
+      if (!keep) {
+        endpoints.pop();
+      }
     }
 
     if (bestBody && objectNames.size > 0 && !sawTimeout) {
@@ -580,7 +592,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     fields: [...allFields].sort(),
     exchanges,
     tags: [...allTags].sort(),
-    version: "0.1.11",
+    version: "0.1.12",
   });
 
   console.log("");
