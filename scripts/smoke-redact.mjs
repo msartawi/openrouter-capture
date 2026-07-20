@@ -44,6 +44,12 @@ assert.ok(
   ),
 );
 assert.ok(deriveAjaxTagsFromTemplate("sntp_t.lp").includes("sntp_data"));
+assert.equal(
+  deriveAjaxTagsFromTemplate("firewall_config_t.lp").includes(
+    "firewall_config_homepage_lua.lua",
+  ),
+  false,
+);
 
 assert.equal(
   classifySessionState(

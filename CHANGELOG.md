@@ -2,6 +2,14 @@
 
 All notable changes will be documented here.
 
+## [0.1.13] — 2026-07-20
+
+### Fixed
+
+- Slim `.lp` → ajax tag derivation (one high-signal guess per area).
+- Probe data-like tags only, prioritize known-good reads, skip remaining types on SessionTimeout.
+- Soft-load no longer burns the probe request budget; synthesize rich endpoints from passive exchanges.
+
 ## [0.1.12] — 2026-07-20
 
 ### Added

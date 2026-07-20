@@ -378,23 +378,25 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
   const catalogMenu =
     harvested.tree.length > 0 ? harvested.tree : walkedMenu;
 
-  // Soft-load menu ids (not .lp templates) so passive capture sees page XML/HTML.
+  // Soft-load a few leaf menu ids for passive capture — do not burn probe budget.
   let idNav = 0;
   for (const tag of harvested.tags) {
-    if (idNav >= 60) break;
+    if (idNav >= 25) break;
     if (isTemplatePathTag(tag) || isDeniedTag(tag) || shouldSkipProbeTag(tag)) {
       continue;
     }
+    // Skip likely section containers; prefer ids that look like leaf pages.
+    if (isSectionStubTag(tag) && tag.length < 8) continue;
     try {
       const result = await probeReadTag(page, "menuView", tag);
-      requestCount += result.method === "POST" ? 2 : 1;
+      // Soft-nav traffic is recorded via page.on("response"); keep probe budget intact.
       for (const t of extractTagsFromText(result.body)) allTags.add(t);
       for (const f of extractParaNames(result.body)) allFields.add(f);
       for (const o of extractObjectNames(result.body)) {
         objects[o] ??= [];
       }
       idNav += 1;
-      await sleep(Math.min(options.delayMs, 400));
+      await sleep(Math.min(options.delayMs, 300));
     } catch {
       // skip
     }
@@ -407,24 +409,43 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     `Menu candidates (after walk): ${walkedMenu.length}; tags so far: ${allTags.size}`,
   );
 
-  // Probe via in-page fetch; lua/_data tags prefer menuData first.
-  // Skip `.lp` template paths — they are not valid ajax `_tag` values.
-  const skipProbe = SKIP_PROBE_TAGS;
+  // Known-good F6600P read tags — probe these first.
+  const priorityTags = [
+    "sntp_data",
+    "firewall_homepage_lua.lua",
+    "firewall_config_lua.lua",
+    "firewall_CPURate_lua.lua",
+    "firewall_dos_lua.lua",
+    "wlan_homepage_lua.lua",
+    "accessdev_homepage_lua.lua",
+    "optical_info_lua.lua",
+    "usb_homepage_lua.lua",
+    "voip_homepage_lua.lua",
+    "route_routedefaultipv6_lua.lua",
+  ];
+  for (const t of priorityTags) allTags.add(t);
+
+  // Probe data-like tags only; skip `.lp` templates and bare section stubs.
   const tagsToProbe = [...allTags]
     .filter(
       (t) =>
-        !isDeniedTag(t) && !shouldSkipProbeTag(t) && !isTemplatePathTag(t),
+        !isDeniedTag(t) &&
+        !shouldSkipProbeTag(t) &&
+        !isTemplatePathTag(t) &&
+        isLikelyDataTag(t),
     )
     .sort((a, b) => {
-      const da = isLikelyDataTag(a) ? 0 : isSectionStubTag(a) ? 2 : 1;
-      const db = isLikelyDataTag(b) ? 0 : isSectionStubTag(b) ? 2 : 1;
-      if (da !== db) return da - db;
+      const pa = priorityTags.indexOf(a);
+      const pb = priorityTags.indexOf(b);
+      const ra = pa === -1 ? 1000 : pa;
+      const rb = pb === -1 ? 1000 : pb;
+      if (ra !== rb) return ra - rb;
       return a.localeCompare(b);
     })
-    .slice(0, Math.max(0, options.maxRequests - requestCount));
+    .slice(0, Math.min(180, Math.max(0, options.maxRequests - requestCount)));
 
   console.log(
-    `Probing ${tagsToProbe.length} tags (in-page GET, then read-style POST)…`,
+    `Probing ${tagsToProbe.length} data tags (in-page GET, then read-style POST)…`,
   );
 
   let timeoutStreak = 0;
@@ -470,27 +491,18 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
         if (sessionState === "timeout") {
           sawTimeout = true;
           timeoutStreak += 1;
-          // ZTE often returns SessionTimeout for inaccessible tags while the
-          // session is still valid — only re-warm occasionally.
-          if (timeoutStreak >= 8) {
+          // Inaccessible tags return SessionTimeout while session stays valid.
+          // Skip remaining types for this tag; re-warm rarely.
+          if (timeoutStreak >= 20) {
             console.warn(
               `[discover] SessionTimeout streak — re-warming (tag=${tag})`,
             );
             warmed = (await warmSession(page, options.routerUrl)) || warmed;
             timeoutStreak = 0;
-            if (requestCount >= options.maxRequests) break;
-            requestCount += 1;
-            result = await probeReadTag(page, type, tag);
-            if (result.method === "POST") requestCount += 1;
-            if (classifySessionState(result.body) === "timeout") {
-              continue;
-            }
-          } else {
-            continue;
           }
-        } else {
-          timeoutStreak = 0;
+          break;
         }
+        timeoutStreak = 0;
 
         if (result.status === 404) {
           continue;
@@ -536,7 +548,21 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
       } catch (err) {
         console.warn(`Probe failed ${type}/${tag}`, err);
       }
-      await sleep(options.delayMs);
+      await sleep(Math.min(options.delayMs, 500));
+    }
+
+    const hasPayload = fields.size > 0 || objectNames.size > 0;
+    if (
+      !hasPayload &&
+      !(
+        bestStatus >= 200 &&
+        bestStatus < 300 &&
+        bestBody &&
+        classifySessionState(bestBody) === "valid"
+      )
+    ) {
+      // Omit empty guesses from the catalog.
+      continue;
     }
 
     endpoints.push({
@@ -551,24 +577,6 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
       objectNames: [...objectNames],
     });
 
-    // Keep catalog lean: only data-like tags or endpoints with payload/status.
-    const last = endpoints[endpoints.length - 1];
-    if (last) {
-      const hasPayload =
-        last.fields.length > 0 || last.objectNames.length > 0;
-      const keep =
-        hasPayload ||
-        isLikelyDataTag(tag) ||
-        (typeof last.status === "number" &&
-          last.status >= 200 &&
-          last.status < 300 &&
-          Boolean(bestBody) &&
-          classifySessionState(bestBody) === "valid");
-      if (!keep) {
-        endpoints.pop();
-      }
-    }
-
     if (bestBody && objectNames.size > 0 && !sawTimeout) {
       await writeText(
         path.join(
@@ -582,6 +590,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
   }
 
   enrichEndpointsFromExchanges(endpoints, exchanges);
+  synthesizeEndpointsFromExchanges(endpoints, exchanges, allFields);
 
   await writeDiscoverReport({
     outputDir: options.outputDir,
@@ -592,7 +601,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     fields: [...allFields].sort(),
     exchanges,
     tags: [...allTags].sort(),
-    version: "0.1.12",
+    version: "0.1.13",
   });
 
   console.log("");
@@ -818,6 +827,70 @@ function enrichEndpointsFromExchanges(
     ep.objectNames = [...objects].sort();
     ep.actionsDetected = [...actions].sort();
     if (bestStatus) ep.status = bestStatus;
+  }
+}
+
+/**
+ * Create catalog endpoints for tags that only appeared in passive exchanges
+ * (warm-up / soft-nav) with ParaName/OBJ_ payloads.
+ */
+function synthesizeEndpointsFromExchanges(
+  endpoints: EndpointRecord[],
+  exchanges: CapturedExchange[],
+  allFields: Set<string>,
+): void {
+  const existing = new Set(
+    endpoints.flatMap((ep) =>
+      [ep.id, ep.dataTag, ep.viewTag].filter(Boolean) as string[],
+    ),
+  );
+
+  const byTag = new Map<string, CapturedExchange[]>();
+  for (const ex of exchanges) {
+    const tag = ex.query?._tag;
+    if (!tag || isDeniedTag(tag) || shouldSkipProbeTag(tag)) continue;
+    if (ex.status < 200 || ex.status >= 300) continue;
+    const body = ex.responseBodyPreview ?? "";
+    const fields = extractParaNames(body);
+    const objs = extractObjectNames(body);
+    if (fields.length === 0 && objs.length === 0) continue;
+    const list = byTag.get(tag) ?? [];
+    list.push(ex);
+    byTag.set(tag, list);
+  }
+
+  for (const [tag, samples] of byTag) {
+    if (existing.has(tag) || existing.has(tag.replace(/[^\w.-]+/g, "_"))) {
+      continue;
+    }
+    const fields = new Set<string>();
+    const objectNames = new Set<string>();
+    const actions = new Set<string>();
+    let bestStatus = 0;
+    for (const sample of samples) {
+      const body = sample.responseBodyPreview ?? "";
+      for (const f of extractParaNames(body)) {
+        fields.add(f);
+        allFields.add(f);
+      }
+      for (const o of extractObjectNames(body)) objectNames.add(o);
+      for (const a of extractActions(body)) actions.add(a);
+      if (sample.status >= 200 && sample.status < 300) {
+        bestStatus = sample.status;
+      }
+    }
+    if (fields.size === 0 && objectNames.size === 0) continue;
+    endpoints.push({
+      id: tag.replace(/[^\w.-]+/g, "_"),
+      dataTag: tag,
+      fields: [...fields].sort(),
+      actionsDetected: [...actions].sort(),
+      writeTested: false,
+      risk: riskForTag(tag),
+      status: bestStatus || undefined,
+      objectNames: [...objectNames].sort(),
+    });
+    existing.add(tag);
   }
 }
 

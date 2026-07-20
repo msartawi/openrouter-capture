@@ -164,26 +164,29 @@ export function isTemplatePathTag(tag: string): boolean {
 
 /**
  * Map template area names to likely ajax `_tag` values used by ZTE GUIs.
- * Example: `firewall_config_t.lp` → `firewall_config_lua.lua`, `firewall_config_data`, …
+ * Prefer a single high-signal guess per area to avoid probe-budget exhaustion.
+ * Example: `firewall_config_t.lp` → `firewall_config_lua.lua`
  */
 export function deriveAjaxTagsFromTemplate(tag: string): string[] {
   if (!/\.(lp|lua|gch)$/i.test(tag)) return [];
   const out = new Set<string>();
-  if (/\.lua$/i.test(tag)) out.add(tag);
+  if (/\.lua$/i.test(tag)) {
+    out.add(tag);
+    return [...out];
+  }
 
-  const base = tag.replace(/\.(lp|lua|gch)$/i, "");
-  out.add(`${base}_lua.lua`);
-
+  const base = tag.replace(/\.(lp|gch)$/i, "");
   if (/_t$/i.test(base)) {
     const stem = base.replace(/_t$/i, "");
     out.add(`${stem}_lua.lua`);
-    out.add(`${stem}_data`);
-    out.add(`${stem}_homepage_lua.lua`);
-  }
-
-  if (/_m$/i.test(base)) {
+    // Common non-lua data tags seen on F6600P-class GUIs.
+    if (/^(sntp|accessdev)$/i.test(stem)) {
+      out.add(`${stem}_data`);
+    }
+  } else if (/_m$/i.test(base)) {
     out.add(`${base}.lua`);
-    out.add(`${base.replace(/_m$/i, "")}_m.lua`);
+  } else {
+    out.add(`${base}_lua.lua`);
   }
 
   return [...out];
