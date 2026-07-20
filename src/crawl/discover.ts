@@ -11,6 +11,7 @@ import {
   harvestMenuTreeJson,
   isLikelyDataTag,
   isSectionStubTag,
+  isTemplatePathTag,
   type MenuNode,
 } from "./menuParser.js";
 import {
@@ -30,6 +31,12 @@ import {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const SKIP_PROBE_TAGS = /^(login_entry|login_token|logout_entry)$/i;
+
+function shouldSkipProbeTag(tag: string): boolean {
+  return SKIP_PROBE_TAGS.test(tag);
 }
 
 function riskForTag(tag: string): EndpointRecord["risk"] {
@@ -365,14 +372,43 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
   const catalogMenu =
     harvested.tree.length > 0 ? harvested.tree : walkedMenu;
 
+  // Soft-load menu ids (not .lp templates) so passive capture sees page XML/HTML.
+  let idNav = 0;
+  for (const tag of harvested.tags) {
+    if (idNav >= 60) break;
+    if (isTemplatePathTag(tag) || isDeniedTag(tag) || shouldSkipProbeTag(tag)) {
+      continue;
+    }
+    try {
+      const result = await probeReadTag(page, "menuView", tag);
+      requestCount += result.method === "POST" ? 2 : 1;
+      for (const t of extractTagsFromText(result.body)) allTags.add(t);
+      for (const f of extractParaNames(result.body)) allFields.add(f);
+      for (const o of extractObjectNames(result.body)) {
+        objects[o] ??= [];
+      }
+      idNav += 1;
+      await sleep(Math.min(options.delayMs, 400));
+    } catch {
+      // skip
+    }
+  }
+  if (idNav > 0) {
+    console.log(`[discover] soft-loaded ${idNav} menu ids from menuTreeJSON`);
+  }
+
   console.log(
     `Menu candidates (after walk): ${walkedMenu.length}; tags so far: ${allTags.size}`,
   );
 
-  // Probe via in-page fetch; lua/_data/.lp tags prefer menuData first.
-  const skipProbe = /^(login_entry|login_token|logout_entry)$/i;
+  // Probe via in-page fetch; lua/_data tags prefer menuData first.
+  // Skip `.lp` template paths — they are not valid ajax `_tag` values.
+  const skipProbe = SKIP_PROBE_TAGS;
   const tagsToProbe = [...allTags]
-    .filter((t) => !isDeniedTag(t) && !skipProbe.test(t))
+    .filter(
+      (t) =>
+        !isDeniedTag(t) && !shouldSkipProbeTag(t) && !isTemplatePathTag(t),
+    )
     .sort((a, b) => {
       const da = isLikelyDataTag(a) ? 0 : isSectionStubTag(a) ? 2 : 1;
       const db = isLikelyDataTag(b) ? 0 : isSectionStubTag(b) ? 2 : 1;
@@ -384,6 +420,8 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
   console.log(
     `Probing ${tagsToProbe.length} tags (in-page GET, then read-style POST)…`,
   );
+
+  let timeoutStreak = 0;
 
   for (const tag of tagsToProbe) {
     if (requestCount >= options.maxRequests) break;
@@ -425,15 +463,27 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
 
         if (sessionState === "timeout") {
           sawTimeout = true;
-          console.warn(`[discover] SessionTimeout for ${tag} — re-warming`);
-          warmed = (await warmSession(page, options.routerUrl)) || warmed;
-          if (requestCount >= options.maxRequests) break;
-          requestCount += 1;
-          result = await probeReadTag(page, type, tag);
-          if (result.method === "POST") requestCount += 1;
-          if (classifySessionState(result.body) === "timeout") {
+          timeoutStreak += 1;
+          // ZTE often returns SessionTimeout for inaccessible tags while the
+          // session is still valid — only re-warm occasionally.
+          if (timeoutStreak >= 8) {
+            console.warn(
+              `[discover] SessionTimeout streak — re-warming (tag=${tag})`,
+            );
+            warmed = (await warmSession(page, options.routerUrl)) || warmed;
+            timeoutStreak = 0;
+            if (requestCount >= options.maxRequests) break;
+            requestCount += 1;
+            result = await probeReadTag(page, type, tag);
+            if (result.method === "POST") requestCount += 1;
+            if (classifySessionState(result.body) === "timeout") {
+              continue;
+            }
+          } else {
             continue;
           }
+        } else {
+          timeoutStreak = 0;
         }
 
         if (result.status === 404) {
@@ -530,7 +580,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     fields: [...allFields].sort(),
     exchanges,
     tags: [...allTags].sort(),
-    version: "0.1.10",
+    version: "0.1.11",
   });
 
   console.log("");

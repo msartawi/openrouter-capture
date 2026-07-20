@@ -2,6 +2,13 @@
 
 All notable changes will be documented here.
 
+## [0.1.11] — 2026-07-20
+
+### Fixed
+
+- Do not probe `.lp` template paths as ajax `_tag` (they cause SessionTimeout storms).
+- Soft-load menu ids from `menuTreeJSON`; re-warm only after timeout streaks, not every inaccessible tag.
+
 ## [0.1.10] — 2026-07-20
 
 ### Added

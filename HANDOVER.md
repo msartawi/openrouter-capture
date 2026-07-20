@@ -33,7 +33,7 @@ It is **not** the Electron app. Never merge this crawler into `openrouterdesk` a
 | Topics | `playwright`, `typescript`, `router`, `zte`, `api-discovery`, `openrouterdesk` |
 | CODEOWNERS | `@msartawi` |
 | CI | `.github/workflows/ci.yml` present; Dependabot open |
-| Stage 1 `discover` | Implemented — production **`v0.1.10`** (menuTreeJSON harvest; capture scorer; auto-login) |
+| Stage 1 `discover` | Implemented — production **`v0.1.11`** (menuTreeJSON ids; skip `.lp` probe storms) |
 | Stage 2 `simulate` | Stub (CLI exits with not implemented) |
 | Stage 3 `verify` / `scenario` | Stub |
 | Stable release | GitHub Release on tag `v*` (see `docs/RELEASE_PROCESS.md`) |

@@ -147,15 +147,23 @@ export function harvestMenuTreeJson(html: string): EmbeddedMenuHarvest {
 /** Prefer probing page/data tags over bare section stubs. */
 export function isLikelyDataTag(tag: string): boolean {
   return (
-    /\.(lua|lp|gch)$/i.test(tag) ||
+    /\.(lua|gch)$/i.test(tag) ||
     /_data$/i.test(tag) ||
     /_homepage_/i.test(tag) ||
-    /_(t|m)\.(lua|lp|gch)$/i.test(tag)
+    /_m\.lua$/i.test(tag)
   );
 }
 
+/**
+ * `.lp` entries in menuTreeJSON are template paths, not ajax `_tag` values.
+ * Probing them as `_tag` yields SessionTimeout noise on F6600P-class GUIs.
+ */
+export function isTemplatePathTag(tag: string): boolean {
+  return /\.lp$/i.test(tag);
+}
+
 export function isSectionStubTag(tag: string): boolean {
-  if (isLikelyDataTag(tag)) return false;
+  if (isLikelyDataTag(tag) || isTemplatePathTag(tag)) return false;
   if (/_entry$/i.test(tag)) return false;
   return /^[A-Za-z][A-Za-z0-9]*$/.test(tag);
 }
