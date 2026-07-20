@@ -11,6 +11,8 @@ export interface EmbeddedMenuHarvest {
   tree: MenuNode[];
   /** Menu ids + area page tags (`.lp` / `.lua`) from menuTreeJSON. */
   tags: string[];
+  /** Leaf menu id → template area bindings for contextual probing. */
+  areaBindings: Array<{ menuId: string; area: string }>;
 }
 
 /**
@@ -104,17 +106,18 @@ type RawMenuJson = {
 export function harvestMenuTreeJson(html: string): EmbeddedMenuHarvest {
   const match = html.match(/var\s+menuTreeJSON\s*=\s*(\[\{[\s\S]*?\}\]);/);
   if (!match?.[1]) {
-    return { tree: [], tags: [] };
+    return { tree: [], tags: [], areaBindings: [] };
   }
 
   let raw: RawMenuJson[];
   try {
     raw = JSON.parse(match[1]) as RawMenuJson[];
   } catch {
-    return { tree: [], tags: [] };
+    return { tree: [], tags: [], areaBindings: [] };
   }
 
   const tags = new Set<string>();
+  const areaBindings: Array<{ menuId: string; area: string }> = [];
 
   const convert = (nodes: RawMenuJson[]): MenuNode[] =>
     nodes.map((n) => {
@@ -129,6 +132,7 @@ export function harvestMenuTreeJson(html: string): EmbeddedMenuHarvest {
         if (area) {
           areas.push(area);
           tags.add(area);
+          if (id) areaBindings.push({ menuId: id, area });
         }
       }
 
@@ -141,7 +145,7 @@ export function harvestMenuTreeJson(html: string): EmbeddedMenuHarvest {
     });
 
   const tree = convert(Array.isArray(raw) ? raw : []);
-  return { tree, tags: [...tags].sort() };
+  return { tree, tags: [...tags].sort(), areaBindings };
 }
 
 /** Prefer probing page/data tags over bare section stubs. */

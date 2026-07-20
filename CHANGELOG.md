@@ -2,6 +2,12 @@
 
 All notable changes will be documented here.
 
+## [0.1.14] — 2026-07-20
+
+### Added
+
+- Contextual leaf probing: `menuView(menuId)` then `menuData` for derived `.lp` ajax tags (matches ZTE GUI page load).
+
 ## [0.1.13] — 2026-07-20
 
 ### Fixed

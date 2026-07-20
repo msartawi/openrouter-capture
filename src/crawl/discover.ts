@@ -378,31 +378,94 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
   const catalogMenu =
     harvested.tree.length > 0 ? harvested.tree : walkedMenu;
 
-  // Soft-load a few leaf menu ids for passive capture — do not burn probe budget.
-  let idNav = 0;
-  for (const tag of harvested.tags) {
-    if (idNav >= 25) break;
-    if (isTemplatePathTag(tag) || isDeniedTag(tag) || shouldSkipProbeTag(tag)) {
+  // Contextual leaf probes: menuView(menuId) then menuData(derived from .lp).
+  // This matches ZTE GUI behavior and unlocks pages that reject bare ajax tags.
+  let contextualHits = 0;
+  const seenAjax = new Set<string>();
+  for (const binding of harvested.areaBindings) {
+    if (contextualHits >= 40) break;
+    if (requestCount >= options.maxRequests - 20) break;
+    const { menuId, area } = binding;
+    if (
+      isDeniedTag(menuId) ||
+      isDeniedTag(area) ||
+      shouldSkipProbeTag(menuId)
+    ) {
       continue;
     }
-    // Skip likely section containers; prefer ids that look like leaf pages.
-    if (isSectionStubTag(tag) && tag.length < 8) continue;
+    const ajaxTags = deriveAjaxTagsFromTemplate(area).filter(
+      (t) => !isDeniedTag(t) && !seenAjax.has(t),
+    );
+    if (ajaxTags.length === 0) continue;
+
     try {
-      const result = await probeReadTag(page, "menuView", tag);
-      // Soft-nav traffic is recorded via page.on("response"); keep probe budget intact.
-      for (const t of extractTagsFromText(result.body)) allTags.add(t);
-      for (const f of extractParaNames(result.body)) allFields.add(f);
-      for (const o of extractObjectNames(result.body)) {
-        objects[o] ??= [];
+      requestCount += 1;
+      await probeReadTag(page, "menuView", menuId);
+      await sleep(Math.min(options.delayMs, 250));
+
+      for (const ajaxTag of ajaxTags) {
+        seenAjax.add(ajaxTag);
+        if (requestCount >= options.maxRequests) break;
+        requestCount += 1;
+        const result = await probeReadTag(page, "menuData", ajaxTag);
+        if (result.method === "POST") requestCount += 1;
+
+        const sessionState = classifySessionState(result.body);
+        exchanges.push({
+          timestamp: new Date().toISOString(),
+          method: result.method,
+          path: "/",
+          query: redactQuery({ _type: "menuData", _tag: ajaxTag }),
+          status: result.status,
+          responseBodyPreview: previewBody(result.body),
+          sessionState,
+        });
+
+        if (sessionState === "timeout" || result.status === 404) {
+          continue;
+        }
+
+        const fields = extractParaNames(result.body);
+        const objectNames = extractObjectNames(result.body);
+        const actions = extractActions(result.body);
+        for (const f of fields) allFields.add(f);
+        for (const o of objectNames) {
+          objects[o] ??= [];
+          if (objects[o].length < 3) {
+            objects[o].push({
+              tag: ajaxTag,
+              type: "menuData",
+              method: result.method,
+              status: result.status,
+              preview: previewBody(result.body, 1500),
+            });
+          }
+        }
+
+        if (fields.length === 0 && objectNames.length === 0) continue;
+
+        contextualHits += 1;
+        endpoints.push({
+          id: ajaxTag.replace(/[^\w.-]+/g, "_"),
+          viewTag: menuId,
+          dataTag: ajaxTag,
+          fields,
+          actionsDetected: actions,
+          writeTested: false,
+          risk: riskForTag(ajaxTag),
+          status: result.status,
+          objectNames,
+        });
+        await sleep(Math.min(options.delayMs, 350));
       }
-      idNav += 1;
-      await sleep(Math.min(options.delayMs, 300));
     } catch {
-      // skip
+      // skip fragile leaves
     }
   }
-  if (idNav > 0) {
-    console.log(`[discover] soft-loaded ${idNav} menu ids from menuTreeJSON`);
+  if (contextualHits > 0 || harvested.areaBindings.length > 0) {
+    console.log(
+      `[discover] contextual leaf probes: hits=${contextualHits} bindings=${harvested.areaBindings.length}`,
+    );
   }
 
   console.log(
@@ -432,7 +495,8 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
         !isDeniedTag(t) &&
         !shouldSkipProbeTag(t) &&
         !isTemplatePathTag(t) &&
-        isLikelyDataTag(t),
+        isLikelyDataTag(t) &&
+        !endpoints.some((ep) => ep.dataTag === t || ep.id === t),
     )
     .sort((a, b) => {
       const pa = priorityTags.indexOf(a);
@@ -601,7 +665,7 @@ export async function runDiscover(options: CrawlOptions): Promise<void> {
     fields: [...allFields].sort(),
     exchanges,
     tags: [...allTags].sort(),
-    version: "0.1.13",
+    version: "0.1.14",
   });
 
   console.log("");
