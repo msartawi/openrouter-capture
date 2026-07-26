@@ -23,7 +23,7 @@
     "node": ">=24.0.0"
   },
   "dependencies": {
-    "playwright": "^1.54.1"
+    "playwright": "^1.62.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
